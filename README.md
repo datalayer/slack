@@ -130,7 +130,7 @@ You need four values from the Datalayer environment that will receive the turn:
 - `DATALAYER_API_URL`: origin exposing the Slack host turn contract, without a trailing API path;
 - `DATALAYER_DEFAULT_APP_ID`: the deployed LOOP application identifier;
 - `DATALAYER_DEV_PRINCIPAL_ID`: the Datalayer principal represented by your Slack user;
-- `DATALAYER_DEV_HOST_TOKEN`: a short-lived token accepted for that principal by the configured API.
+- `DATALAYER_API_KEY`: the existing development API key exported in your shell. The Makefile maps it to the adapter's development host-token variable only for the child process.
 
 You also need your Slack member ID for `DATALAYER_DEV_SLACK_USER_ID`. In Slack, open your profile, choose **More → Copy member ID**.
 
@@ -141,18 +141,13 @@ datalayer login
 datalayer whoami --details
 ```
 
-Copy the displayed `UID` into `DATALAYER_DEV_PRINCIPAL_ID`. For local testing, create a temporary API key that expires after one day:
+Copy the displayed `UID` into `DATALAYER_DEV_PRINCIPAL_ID`. Confirm that the CLI's existing API key is exported in your shell:
 
 ```bash
-expiration="$(date -d '+1 day' +%s)"
-datalayer api-keys create \
-  slack-local \
-  "Temporary token for local Slack adapter testing" \
-  --api-key-type temporary \
-  --expiration-date "${expiration}"
+test -n "${DATALAYER_API_KEY}" && echo "Datalayer API key is available"
 ```
 
-The CLI displays the API key value only once. Put it in `DATALAYER_DEV_HOST_TOKEN`, keep it out of shell history and chat, and delete or rotate it after testing. This development API key is a temporary bootstrap only; third-party customers must use the audience-bound account-link and host-token exchange described above.
+The local Makefile passes `DATALAYER_API_KEY` to the adapter as `DATALAYER_DEV_HOST_TOKEN` only in the `dev-socket` process. It does not copy the credential into `.env`, logs or command output. This existing API key is a development bootstrap only; third-party customers must use the audience-bound account-link and host-token exchange described above.
 
 If the target Datalayer environment does not yet expose `/api/v1/apps/sessions/turns`, Slack setup can still be verified through App Home and receipt of events, but prompts cannot complete. This is currently the main server-side prerequisite.
 
@@ -169,7 +164,6 @@ DATALAYER_SLACK_STORE=memory
 DATALAYER_API_URL=https://your-datalayer-api.example
 DATALAYER_WEB_URL=https://datalayer.ai
 DATALAYER_DEFAULT_APP_ID=your-deployed-application-id
-DATALAYER_DEV_HOST_TOKEN=your-short-lived-development-token
 DATALAYER_DEV_PRINCIPAL_ID=your-datalayer-principal-id
 DATALAYER_DEV_SLACK_USER_ID=U0123456789
 
@@ -185,8 +179,8 @@ Never commit `.env`, Slack tokens, Datalayer tokens, database passwords or encry
 ### 7. Validate and start
 
 ```bash
-npm run check
-npm run dev:socket
+make check
+make dev-socket
 ```
 
 Successful startup ends with a message similar to:
@@ -196,6 +190,12 @@ Successful startup ends with a message similar to:
 ```
 
 Keep that terminal running.
+
+`make dev-socket` fails before starting when `DATALAYER_API_KEY` is unavailable. To bypass the Makefile intentionally, provide the adapter-specific value for one command:
+
+```bash
+DATALAYER_DEV_HOST_TOKEN="${DATALAYER_API_KEY}" npm run dev:socket
+```
 
 ### 8. Exercise the app
 
