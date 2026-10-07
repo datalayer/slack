@@ -14,8 +14,8 @@ async function main(): Promise<void> {
   const resources = createRuntimeResources(config);
   const { queue, store } = resources;
   await seedDevelopmentInstallation(config, store);
-  const app = createBoltApp(config);
-  const slack = new BoltSlackPort(app.client);
+  const app = createBoltApp(config, resources.installationStore);
+  const slack = new BoltSlackPort(app.client, store);
   const agents = new HttpAgentClient(config.DATALAYER_API_URL, async () => {
     if (config.NODE_ENV === "development" && config.DATALAYER_DEV_HOST_TOKEN) {
       return config.DATALAYER_DEV_HOST_TOKEN;

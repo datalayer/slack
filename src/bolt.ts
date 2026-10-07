@@ -1,8 +1,17 @@
-import { App, LogLevel } from "@slack/bolt";
+import {
+  App,
+  LogLevel,
+  MemoryInstallationStore,
+  type InstallationStore,
+} from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 
 import type { Config } from "./config.js";
-import type { IncomingPrompt, SlackInstallationKey } from "./domain.js";
+import type {
+  IncomingPrompt,
+  SlackInstallationKey,
+  ThreadKey,
+} from "./domain.js";
 import { homeView } from "./home.js";
 import type { WorkQueue } from "./queue.js";
 import type { SlackMessage, SlackPort } from "./slack-port.js";
@@ -11,23 +20,33 @@ import { slackThreadKey } from "./service.js";
 import type { SlackStore } from "./store.js";
 
 export class BoltSlackPort implements SlackPort {
-  constructor(readonly client: WebClient) {}
+  constructor(
+    readonly client: WebClient,
+    readonly store: SlackStore,
+  ) {}
 
-  async postPrivate(userId: string, message: SlackMessage): Promise<void> {
-    const opened = await this.client.conversations.open({ users: userId });
+  async postPrivate(
+    key: SlackInstallationKey,
+    userId: string,
+    message: SlackMessage,
+  ): Promise<void> {
+    const token = await this.#token(key);
+    const opened = await this.client.conversations.open({
+      token,
+      users: userId,
+    });
     const channel = opened.channel?.id;
     if (!channel)
       throw new Error("Slack did not return a direct-message channel.");
-    await this.client.chat.postMessage({ channel, ...message });
+    await this.client.chat.postMessage({ channel, token, ...message });
   }
 
-  async postThread(
-    key: IncomingPrompt,
-    message: SlackMessage,
-  ): Promise<string> {
+  async postThread(key: ThreadKey, message: SlackMessage): Promise<string> {
+    const token = await this.#token(key);
     const response = await this.client.chat.postMessage({
       channel: key.channelId,
       thread_ts: key.threadTs,
+      token,
       ...message,
     });
     if (!response.ts)
@@ -36,27 +55,66 @@ export class BoltSlackPort implements SlackPort {
   }
 
   async updateMessage(
-    channelId: string,
+    key: ThreadKey,
     messageTs: string,
     message: SlackMessage,
   ): Promise<void> {
+    const token = await this.#token(key);
     await this.client.chat.update({
-      channel: channelId,
+      channel: key.channelId,
       ts: messageTs,
+      token,
       ...message,
     });
   }
+
+  async #token(key: SlackInstallationKey): Promise<string> {
+    const installation = await this.store.getInstallation(key);
+    if (!installation || installation.status !== "active") {
+      throw new Error("No active Slack installation was found.");
+    }
+    return installation.botToken;
+  }
 }
 
-export function createBoltApp(config: Config): App {
+export function createBoltApp(
+  config: Config,
+  durableInstallationStore?: InstallationStore,
+): App {
+  const oauthConfigured = Boolean(
+    config.SLACK_CLIENT_ID &&
+      config.SLACK_CLIENT_SECRET &&
+      config.SLACK_STATE_SECRET &&
+      config.SLACK_REDIRECT_URI,
+  );
   return new App({
     appToken: config.SLACK_APP_TOKEN,
+    clientId: oauthConfigured ? config.SLACK_CLIENT_ID : undefined,
+    clientSecret: oauthConfigured ? config.SLACK_CLIENT_SECRET : undefined,
+    installationStore: oauthConfigured
+      ? (durableInstallationStore ?? new MemoryInstallationStore())
+      : undefined,
+    installerOptions: oauthConfigured
+      ? {
+          directInstall: true,
+          installPath: "/slack/install",
+          redirectUriPath: new URL(
+            config.SLACK_REDIRECT_URI ??
+              "https://invalid.local/slack/oauth/callback",
+          ).pathname,
+        }
+      : undefined,
     logLevel:
       config.NODE_ENV === "development" ? LogLevel.DEBUG : LogLevel.INFO,
+    redirectUri: oauthConfigured ? config.SLACK_REDIRECT_URI : undefined,
     signingSecret:
       config.SLACK_SIGNING_SECRET ?? "socket-mode-does-not-use-this-secret",
+    scopes: oauthConfigured
+      ? ["app_mentions:read", "chat:write", "im:history"]
+      : undefined,
     socketMode: config.DATALAYER_SLACK_TRANSPORT === "socket",
-    token: config.SLACK_BOT_TOKEN,
+    stateSecret: oauthConfigured ? config.SLACK_STATE_SECRET : undefined,
+    token: oauthConfigured ? undefined : config.SLACK_BOT_TOKEN,
   });
 }
 

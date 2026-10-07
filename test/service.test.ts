@@ -26,7 +26,11 @@ class FakeSlack implements SlackPort {
   threadMessages: SlackMessage[] = [];
   updates: SlackMessage[] = [];
 
-  async postPrivate(_userId: string, message: SlackMessage): Promise<void> {
+  async postPrivate(
+    _key: IncomingPrompt,
+    _userId: string,
+    message: SlackMessage,
+  ): Promise<void> {
     this.privateMessages.push(message);
   }
 
@@ -39,7 +43,7 @@ class FakeSlack implements SlackPort {
   }
 
   async updateMessage(
-    _channelId: string,
+    _key: IncomingPrompt,
     _messageTs: string,
     message: SlackMessage,
   ): Promise<void> {

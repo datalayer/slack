@@ -21,9 +21,10 @@ The repository currently provides the executable Phase 0/early Phase 2 foundatio
 - progressively updated threaded answers and private setup failures;
 - least-privilege manifests for development, staging and production;
 - production refusal when only the in-memory development store is configured;
+- encrypted, durable Slack OAuth installations with workspace-specific token routing;
 - CI checks that prevent Jupyter, JupyterLab, Lumino, React DOM and Datalayer Jupyter imports.
 
-OAuth distribution, durable platform adapters, account-link callbacks, App Home, the host-token exchange, approval actions and Marketplace work still require the corresponding server/platform contracts. The service says this through configuration rather than using a workspace token as a human identity.
+Account-link callbacks, the host-token exchange, approval actions and Marketplace work still require the corresponding server/platform contracts. The service says this through configuration rather than using a workspace token as a human identity. Enterprise Grid organization-wide installation is intentionally refused until its ownership and routing model is implemented.
 
 ## Requirements
 
@@ -67,6 +68,27 @@ The development token is accepted only in `NODE_ENV=development`; production con
 
 HTTP development uses `npm run dev:http`, a signing secret and an HTTPS tunnel whose `/slack/events` URL is configured in the development app.
 
+## OAuth installation
+
+HTTP deployments expose Bolt's install and callback routes at:
+
+- `GET /slack/install`
+- `GET /slack/oauth/callback`
+
+Configure the Slack app's OAuth redirect URL to the exact public value of `SLACK_REDIRECT_URI`, then set:
+
+```text
+SLACK_APP_ID=A…
+SLACK_CLIENT_ID=…
+SLACK_CLIENT_SECRET=…
+SLACK_STATE_SECRET=<at least 32 random characters>
+SLACK_REDIRECT_URI=https://slack.example.datalayer.run/slack/oauth/callback
+```
+
+Production requires all five values. Bolt verifies OAuth state, exchanges the temporary code, and calls the PostgreSQL installation adapter. The adapter encrypts the complete installation and mirrors the active bot identity into the domain store. Reinstallation and Slack token rotation use the same upsert path. Every outbound Slack call selects the bot token by app, enterprise and team; there is no process-global production bot token.
+
+The install callback currently records Slack ownership only. Binding an installation to a Datalayer organization remains blocked on the authoritative Datalayer organization-selection and host-token APIs described in the delivery plan.
+
 ## Durable storage
 
 Production uses PostgreSQL for installations, linked identities, application defaults, thread/session bindings, event claims and durable worker jobs. Configure:
@@ -74,6 +96,7 @@ Production uses PostgreSQL for installations, linked identities, application def
 ```text
 DATALAYER_SLACK_STORE=postgres
 DATABASE_URL=postgresql://...
+SLACK_APP_ID=A…
 SLACK_TOKEN_ENCRYPTION_KEY=<base64-encoded 32-byte key>
 SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
 ```

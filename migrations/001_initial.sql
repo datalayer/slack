@@ -14,6 +14,15 @@ CREATE TABLE IF NOT EXISTS slack_installations (
   PRIMARY KEY (app_id, enterprise_id, team_id)
 );
 
+CREATE TABLE IF NOT EXISTS slack_oauth_installations (
+  app_id text NOT NULL,
+  enterprise_id text NOT NULL DEFAULT '',
+  team_id text NOT NULL DEFAULT '',
+  installation jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (app_id, enterprise_id, team_id)
+);
+
 CREATE TABLE IF NOT EXISTS slack_user_links (
   app_id text NOT NULL,
   enterprise_id text NOT NULL DEFAULT '',

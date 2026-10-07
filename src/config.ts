@@ -32,6 +32,7 @@ const schema = z
     SLACK_CLIENT_ID: optionalSecret,
     SLACK_CLIENT_SECRET: optionalSecret,
     SLACK_STATE_SECRET: optionalSecret,
+    SLACK_REDIRECT_URI: z.url().optional(),
   })
   .superRefine((value, context) => {
     if (
@@ -43,6 +44,13 @@ const schema = z
         path: ["DATALAYER_SLACK_STORE"],
         message:
           "Production requires a durable installation, binding, and idempotency store.",
+      });
+    }
+    if (value.SLACK_STATE_SECRET && value.SLACK_STATE_SECRET.length < 32) {
+      context.addIssue({
+        code: "custom",
+        path: ["SLACK_STATE_SECRET"],
+        message: "SLACK_STATE_SECRET must contain at least 32 characters.",
       });
     }
     if (value.NODE_ENV === "production" && value.DATALAYER_DEV_HOST_TOKEN) {
@@ -58,6 +66,13 @@ const schema = z
         code: "custom",
         path: ["DATABASE_URL"],
         message: "PostgreSQL storage requires DATABASE_URL.",
+      });
+    }
+    if (value.DATALAYER_SLACK_STORE === "postgres" && !value.SLACK_APP_ID) {
+      context.addIssue({
+        code: "custom",
+        path: ["SLACK_APP_ID"],
+        message: "PostgreSQL storage requires SLACK_APP_ID.",
       });
     }
     if (
@@ -88,6 +103,21 @@ const schema = z
         code: "custom",
         path: ["SLACK_SIGNING_SECRET"],
         message: "HTTP transport requires SLACK_SIGNING_SECRET.",
+      });
+    }
+    if (
+      value.NODE_ENV === "production" &&
+      (!value.SLACK_CLIENT_ID ||
+        !value.SLACK_CLIENT_SECRET ||
+        !value.SLACK_STATE_SECRET ||
+        !value.SLACK_REDIRECT_URI ||
+        !value.SLACK_APP_ID)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["SLACK_CLIENT_ID"],
+        message:
+          "Production requires Slack app, client, state, and redirect configuration for OAuth distribution.",
       });
     }
   });

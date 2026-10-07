@@ -31,7 +31,7 @@ export class SlackAgentService {
 
     const link = await this.store.getUserLink(installationKey, prompt.userId);
     if (!link || link.status !== "active") {
-      await this.slack.postPrivate(prompt.userId, {
+      await this.slack.postPrivate(installationKey, prompt.userId, {
         text: `Connect your Datalayer account before asking @Datalayer: ${this.webUrl}/docs/slack#install-and-connect`,
       });
       return;
@@ -40,7 +40,7 @@ export class SlackAgentService {
     const applicationId =
       await this.store.getDefaultApplication(installationKey);
     if (!applicationId) {
-      await this.slack.postPrivate(prompt.userId, {
+      await this.slack.postPrivate(installationKey, prompt.userId, {
         text: `No default application is available. Ask a Datalayer owner to configure Slack: ${this.webUrl}/docs/slack#administration`,
       });
       return;
@@ -48,7 +48,7 @@ export class SlackAgentService {
 
     const text = stripAppMention(prompt.text, botUserId);
     if (!text) {
-      await this.slack.postPrivate(prompt.userId, {
+      await this.slack.postPrivate(installationKey, prompt.userId, {
         text: "Add a question after @Datalayer.",
       });
       return;
@@ -90,7 +90,7 @@ export class SlackAgentService {
         const terminal = update.kind === "complete" || update.kind === "error";
         if (terminal || now - lastPublishedAt >= 750) {
           await this.slack.updateMessage(
-            prompt.channelId,
+            prompt,
             placeholderTs,
             presentation.message(openUrl),
           );
@@ -100,7 +100,7 @@ export class SlackAgentService {
       }
       if (hasUnpublishedUpdate)
         await this.slack.updateMessage(
-          prompt.channelId,
+          prompt,
           placeholderTs,
           presentation.message(openUrl),
         );
@@ -110,7 +110,7 @@ export class SlackAgentService {
         message: "The connection to Datalayer was interrupted.",
       });
       await this.slack.updateMessage(
-        prompt.channelId,
+        prompt,
         placeholderTs,
         presentation.message(openUrl),
       );

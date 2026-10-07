@@ -1,4 +1,4 @@
-import type { ThreadKey } from "./domain.js";
+import type { SlackInstallationKey, ThreadKey } from "./domain.js";
 
 export type SlackMessage = Readonly<{
   blocks?: readonly unknown[];
@@ -6,10 +6,14 @@ export type SlackMessage = Readonly<{
 }>;
 
 export interface SlackPort {
-  postPrivate(userId: string, message: SlackMessage): Promise<void>;
+  postPrivate(
+    key: SlackInstallationKey,
+    userId: string,
+    message: SlackMessage,
+  ): Promise<void>;
   postThread(key: ThreadKey, message: SlackMessage): Promise<string>;
   updateMessage(
-    channelId: string,
+    key: ThreadKey,
     messageTs: string,
     message: SlackMessage,
   ): Promise<void>;
