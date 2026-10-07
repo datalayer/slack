@@ -124,6 +124,7 @@ describe("SlackAgentService", () => {
     expect(startTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         applicationId: "launch-review",
+        externalUserId: "U1",
         principalId: "P1",
         prompt: "hello",
       }),

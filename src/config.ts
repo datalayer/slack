@@ -21,6 +21,13 @@ const schema = z
     DATALAYER_WEB_URL: z.url().default("https://datalayer.ai"),
     DATALAYER_DEFAULT_APP_ID: optionalSecret,
     DATALAYER_DEV_HOST_TOKEN: optionalSecret,
+    /**
+     * The key ai-agents answered when this installation was bound
+     * (`POST /api/ai-agents/v1/apps/hosts/bind`): the installation proof the
+     * host credential exchange takes. One installation until the OAuth
+     * callback keeps each workspace's key beside its Slack installation.
+     */
+    DATALAYER_HOST_KEY: optionalSecret,
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,
     DATALAYER_DEV_SLACK_USER_ID: optionalSecret,
     SLACK_APP_ID: optionalSecret,

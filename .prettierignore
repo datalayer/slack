@@ -4,3 +4,5 @@ node_modules
 manifests/*.yaml
 package-lock.json
 app-manifest.template.yaml
+# Shared verbatim with services/ai-agents/tests/fixtures/hosts/contracts.json
+test/contracts/contracts.json

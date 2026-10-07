@@ -56,8 +56,11 @@ export type AgentUpdate =
   | Readonly<{ kind: "error"; message: string }>;
 
 export type TurnRequest = Readonly<{
+  /** The deployment the turn runs: one the installation allows. */
   applicationId: string;
   externalEventId: string;
+  /** The Slack user the host speaks for: what the credential exchange names. */
+  externalUserId: string;
   principalId: string;
   prompt: string;
   provenance: ThreadKey;

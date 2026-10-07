@@ -61,6 +61,7 @@ export class SlackAgentService {
     const turn = await this.agents.startTurn({
       applicationId,
       externalEventId: prompt.eventId,
+      externalUserId: prompt.userId,
       principalId: link.datalayerPrincipalId,
       prompt: text,
       provenance: prompt,
