@@ -134,6 +134,26 @@ You need four values from the Datalayer environment that will receive the turn:
 
 You also need your Slack member ID for `DATALAYER_DEV_SLACK_USER_ID`. In Slack, open your profile, choose **More → Copy member ID**.
 
+Use the Datalayer CLI to sign in and display your principal UID:
+
+```bash
+datalayer login
+datalayer whoami --details
+```
+
+Copy the displayed `UID` into `DATALAYER_DEV_PRINCIPAL_ID`. For local testing, create a temporary API key that expires after one day:
+
+```bash
+expiration="$(date -d '+1 day' +%s)"
+datalayer api-keys create \
+  slack-local \
+  "Temporary token for local Slack adapter testing" \
+  --api-key-type temporary \
+  --expiration-date "${expiration}"
+```
+
+The CLI displays the API key value only once. Put it in `DATALAYER_DEV_HOST_TOKEN`, keep it out of shell history and chat, and delete or rotate it after testing. This development API key is a temporary bootstrap only; third-party customers must use the audience-bound account-link and host-token exchange described above.
+
 If the target Datalayer environment does not yet expose `/api/v1/apps/sessions/turns`, Slack setup can still be verified through App Home and receipt of events, but prompts cannot complete. This is currently the main server-side prerequisite.
 
 ### 6. Fill `.env`
