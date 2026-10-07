@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readConfig } from "../src/config.js";
+import { deliveryUrlOf, readConfig } from "../src/config.js";
 
 describe("configuration", () => {
   it("requires a Socket Mode app token", () => {
@@ -36,5 +36,48 @@ describe("configuration", () => {
         SLACK_SIGNING_SECRET: "signing-secret",
       }),
     ).toThrow(/DATABASE_URL|SLACK_TOKEN_ENCRYPTION_KEY/);
+  });
+
+  it("keeps one host key for every workspace to development", () => {
+    expect(() =>
+      readConfig({
+        DATALAYER_HOST_KEY: "dlhk_shared",
+        DATALAYER_SLACK_TRANSPORT: "http",
+        NODE_ENV: "test",
+        SLACK_SIGNING_SECRET: "signing-secret",
+      }),
+    ).toThrow(/development shortcut/);
+    expect(
+      readConfig({
+        DATALAYER_HOST_KEY: "dlhk_shared",
+        DATALAYER_SLACK_TRANSPORT: "http",
+        NODE_ENV: "development",
+        SLACK_SIGNING_SECRET: "signing-secret",
+      }).DATALAYER_HOST_KEY,
+    ).toBe("dlhk_shared");
+  });
+
+  it("is pushed deliveries at its public HTTPS origin, else reads the outbox", () => {
+    expect(
+      deliveryUrlOf(
+        {
+          SLACK_REDIRECT_URI: "https://slack.datalayer.ai/slack/oauth/callback",
+        },
+        "inst-1",
+      ),
+    ).toBe("https://slack.datalayer.ai/datalayer/deliveries/inst-1");
+    expect(
+      deliveryUrlOf(
+        {
+          DATALAYER_SLACK_PUBLIC_URL: "https://hooks.example",
+          SLACK_REDIRECT_URI: "https://slack.datalayer.ai/slack/oauth/callback",
+        },
+        "inst-1",
+      ),
+    ).toBe("https://hooks.example/datalayer/deliveries/inst-1");
+    expect(
+      deliveryUrlOf({ SLACK_REDIRECT_URI: "http://localhost:3000/x" }, "i"),
+    ).toBeUndefined();
+    expect(deliveryUrlOf({}, "i")).toBeUndefined();
   });
 });

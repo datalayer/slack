@@ -6,6 +6,8 @@ import {
   assertTrustedStreamUrl,
   HostKeyCredentials,
   HttpAgentClient,
+  InstallationCredentials,
+  NOT_BOUND,
   sessionUidOf,
 } from "../src/agent-client.js";
 import type { AgentUpdate, TurnRequest } from "../src/domain.js";
@@ -74,7 +76,9 @@ function wire(answers: Record<string, () => Response>) {
   ) => {
     const url = String(input);
     calls.push({
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      body: init?.body
+        ? (JSON.parse(init.body as string) as unknown)
+        : undefined,
       headers: (init?.headers ?? {}) as Record<string, string>,
       method: init?.method ?? "GET",
       url,
@@ -153,6 +157,16 @@ describe("Datalayer agent client", () => {
     );
     expect(bind?.method).toBe("PUT");
     expect(bind?.headers[contracts.headers.host_key!]).toBe("dlhk_key");
+    // The target every delivery hands back: the thread and the person.
+    expect(bind?.body).toEqual({
+      target: {
+        appId: "A0",
+        channelId: "C0",
+        teamId: "T0",
+        threadTs: "1700000000.000001",
+        userId: "U0ALICE",
+      },
+    });
     expect(seen).toEqual([
       { kind: "tool", name: "search", status: "running" },
       { kind: "tool", name: "search", status: "complete" },
@@ -216,5 +230,30 @@ describe("Datalayer agent client", () => {
     );
     await expect(client.startTurn(request)).rejects.toThrow(/403/);
     expect(calls).toHaveLength(1);
+  });
+
+  it("refuses a workspace without a host key, unless development's own credentials stand in", async () => {
+    const { calls, fetchImplementation } = wire({});
+    const unbound = new HostKeyCredentials(
+      API,
+      async () => undefined,
+      fetchImplementation,
+    );
+    await expect(
+      new InstallationCredentials(unbound).forTurn(request),
+    ).rejects.toThrow(NOT_BOUND);
+    const development = {
+      forTurn: async () => ({
+        accessToken: "dev",
+        agent: "agent-desk",
+        bindable: false,
+        deploymentUid: "dep-1",
+        sessionApiUrl: exchanged.session_api.url,
+      }),
+    };
+    await expect(
+      new InstallationCredentials(unbound, development).forTurn(request),
+    ).resolves.toMatchObject({ accessToken: "dev", bindable: false });
+    expect(calls).toHaveLength(0);
   });
 });

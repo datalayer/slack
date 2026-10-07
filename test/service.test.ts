@@ -26,6 +26,15 @@ class FakeSlack implements SlackPort {
   threadMessages: SlackMessage[] = [];
   updates: SlackMessage[] = [];
 
+  async postDirect(
+    _key: IncomingPrompt,
+    _userId: string,
+    message: SlackMessage,
+  ): Promise<{ channelId: string; ts: string }> {
+    this.privateMessages.push(message);
+    return { channelId: "D1", ts: "3.0" };
+  }
+
   async postPrivate(
     _key: IncomingPrompt,
     _userId: string,
@@ -162,5 +171,74 @@ describe("SlackAgentService", () => {
     expect(agents.startTurn).not.toHaveBeenCalled();
     expect(slack.privateMessages).toHaveLength(0);
     expect(slack.threadMessages).toHaveLength(0);
+  });
+
+  it("sends an unlinked person a one-use link to connect, from the workspace's host", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      appId: "A1",
+      botToken: "token",
+      botUserId: "B1",
+      installedBy: "U0",
+      scopes: [],
+      status: "active",
+      teamId: "T1",
+      updatedAt: new Date(0).toISOString(),
+    });
+    const slack = new FakeSlack();
+    const agents: AgentClient = { startTurn: vi.fn(), stopTurn: vi.fn() };
+    const service = new SlackAgentService(
+      store,
+      agents,
+      slack,
+      "https://datalayer.ai",
+      {
+        connectUrlOf: async () => "https://datalayer.ai/hosts/link?code=dlhc_x",
+        linkOf: async () => undefined,
+      },
+    );
+
+    await service.handlePrompt({ ...prompt, eventId: "Ev-unlinked" }, "B1");
+
+    expect(slack.privateMessages[0]?.text).toContain(
+      "<https://datalayer.ai/hosts/link?code=dlhc_x|Connect your Datalayer account>",
+    );
+    expect(agents.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps the status message pending while a turn is not finished", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      appId: "A1",
+      botToken: "token",
+      botUserId: "B1",
+      installedBy: "U0",
+      scopes: [],
+      status: "active",
+      teamId: "T1",
+      updatedAt: new Date(0).toISOString(),
+    });
+    await store.setDefaultApplication({ appId: "A1", teamId: "T1" }, "dep-1");
+    async function* paused(): AsyncIterable<AgentUpdate> {
+      yield { kind: "status", label: "Waiting for your approval" };
+    }
+    const service = new SlackAgentService(
+      store,
+      {
+        startTurn: vi.fn(async () => ({ sessionId: "S1", updates: paused() })),
+        stopTurn: vi.fn(),
+      },
+      new FakeSlack(),
+      "https://datalayer.ai",
+      {
+        connectUrlOf: async () => undefined,
+        linkOf: async () => ({ principalId: "alice" }),
+      },
+    );
+
+    await service.handlePrompt({ ...prompt, eventId: "Ev-paused" }, "B1");
+    await expect(store.getThread(prompt)).resolves.toMatchObject({
+      pendingMessageTs: "2.0",
+    });
   });
 });

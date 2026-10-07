@@ -2,6 +2,7 @@ import {
   App,
   LogLevel,
   MemoryInstallationStore,
+  type CustomRoute,
   type InstallationStore,
 } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
@@ -12,7 +13,30 @@ import type {
   SlackInstallationKey,
   ThreadKey,
 } from "./domain.js";
-import { homeView } from "./home.js";
+import {
+  APPROVE_ACTION,
+  buttonValueOf,
+  CONFIRM_VIEW,
+  confirmModal,
+  DECLINE_ACTION,
+  NOTE_ACTION,
+  NOTE_BLOCK,
+  REVIEW_ACTION,
+  type ConfirmMetadata,
+} from "./approval-card.js";
+import {
+  DECISION_WORDS,
+  type DeliveryHandler,
+  type DeliveryJob,
+} from "./deliveries.js";
+import { CONNECT_ACTION, homeView } from "./home.js";
+import type { HostInstallations } from "./host-installations.js";
+import {
+  escapeHtml,
+  page,
+  startBoundInstall,
+  type SignedStateStore,
+} from "./oauth-state.js";
 import type { WorkQueue } from "./queue.js";
 import type { SlackMessage, SlackPort } from "./slack-port.js";
 import type { SlackAgentService } from "./service.js";
@@ -25,20 +49,30 @@ export class BoltSlackPort implements SlackPort {
     readonly store: SlackStore,
   ) {}
 
+  async postDirect(
+    key: SlackInstallationKey,
+    userId: string,
+    message: SlackMessage,
+  ): Promise<{ channelId: string; ts: string }> {
+    const token = await this.#token(key);
+    // Posted to the user's id: @Datalayer's Messages tab, with `chat:write`
+    // only (no `im:write` to open a conversation).
+    const response = await this.client.chat.postMessage({
+      channel: userId,
+      token,
+      ...message,
+    });
+    if (!response.channel || !response.ts)
+      throw new Error("Slack did not return the direct message.");
+    return { channelId: response.channel, ts: response.ts };
+  }
+
   async postPrivate(
     key: SlackInstallationKey,
     userId: string,
     message: SlackMessage,
   ): Promise<void> {
-    const token = await this.#token(key);
-    const opened = await this.client.conversations.open({
-      token,
-      users: userId,
-    });
-    const channel = opened.channel?.id;
-    if (!channel)
-      throw new Error("Slack did not return a direct-message channel.");
-    await this.client.chat.postMessage({ channel, token, ...message });
+    await this.postDirect(key, userId, message);
   }
 
   async postThread(key: ThreadKey, message: SlackMessage): Promise<string> {
@@ -77,24 +111,41 @@ export class BoltSlackPort implements SlackPort {
   }
 }
 
-export function createBoltApp(
-  config: Config,
-  durableInstallationStore?: InstallationStore,
-): App {
-  const oauthConfigured = Boolean(
+/** The bot scopes of the baseline (§6.2), and nothing else. */
+export const BOT_SCOPES = ["app_mentions:read", "chat:write", "im:history"];
+
+export type BoltAppOptions = Readonly<{
+  /** The routes served beside Slack's: Datalayer's signed deliveries. */
+  customRoutes?: CustomRoute[];
+  installationStore?: InstallationStore;
+  /** Signed, one-use OAuth state that carries the Ship card's bind code. */
+  stateStore?: SignedStateStore;
+}>;
+
+export function oauthConfigured(config: Config): boolean {
+  return Boolean(
     config.SLACK_CLIENT_ID &&
       config.SLACK_CLIENT_SECRET &&
       config.SLACK_STATE_SECRET &&
       config.SLACK_REDIRECT_URI,
   );
+}
+
+export function createBoltApp(
+  config: Config,
+  options: BoltAppOptions = {},
+): App {
+  const oauth = oauthConfigured(config);
+  const stateStore = options.stateStore;
   return new App({
     appToken: config.SLACK_APP_TOKEN,
-    clientId: oauthConfigured ? config.SLACK_CLIENT_ID : undefined,
-    clientSecret: oauthConfigured ? config.SLACK_CLIENT_SECRET : undefined,
-    installationStore: oauthConfigured
-      ? (durableInstallationStore ?? new MemoryInstallationStore())
+    clientId: oauth ? config.SLACK_CLIENT_ID : undefined,
+    clientSecret: oauth ? config.SLACK_CLIENT_SECRET : undefined,
+    customRoutes: options.customRoutes,
+    installationStore: oauth
+      ? (options.installationStore ?? new MemoryInstallationStore())
       : undefined,
-    installerOptions: oauthConfigured
+    installerOptions: oauth
       ? {
           directInstall: true,
           installPath: "/slack/install",
@@ -102,29 +153,93 @@ export function createBoltApp(
             config.SLACK_REDIRECT_URI ??
               "https://invalid.local/slack/oauth/callback",
           ).pathname,
+          stateStore,
+          installPathOptions: stateStore
+            ? {
+                // The Ship card's code rides in this request's own state,
+                // never in an option shared with another request.
+                beforeRedirection: async (request, response) =>
+                  startBoundInstall(request, response, {
+                    clientId: config.SLACK_CLIENT_ID ?? "",
+                    redirectUri: config.SLACK_REDIRECT_URI,
+                    requireBind: config.NODE_ENV !== "development",
+                    scopes: BOT_SCOPES,
+                    stateStore,
+                    webUrl: config.DATALAYER_WEB_URL,
+                  }),
+              }
+            : undefined,
+          callbackOptions: {
+            success: (installation, _options, _request, response) => {
+              const team = installation.team?.name ?? "your workspace";
+              response.writeHead(200, {
+                "content-type": "text/html; charset=utf-8",
+              });
+              response.end(
+                page(
+                  "@Datalayer is installed",
+                  `@Datalayer answers in ${escapeHtml(team)} as the application you installed it for. Each person connects their own Datalayer account from @Datalayer's Home in Slack. <a href="${escapeHtml(config.DATALAYER_WEB_URL)}/docs/slack">Read the guide</a>.`,
+                ),
+              );
+            },
+            failure: (_error, _options, _request, response) => {
+              response.writeHead(400, {
+                "content-type": "text/html; charset=utf-8",
+              });
+              response.end(
+                page(
+                  "@Datalayer was not installed",
+                  `The install did not finish: its code from Datalayer was used, it expired (ten minutes), or Slack did not confirm it. Install again from the application's Ship tab in Datalayer. <a href="${escapeHtml(config.DATALAYER_WEB_URL)}/docs/slack">Read the guide</a>.`,
+                ),
+              );
+            },
+          },
         }
       : undefined,
     logLevel:
       config.NODE_ENV === "development" ? LogLevel.DEBUG : LogLevel.INFO,
-    redirectUri: oauthConfigured ? config.SLACK_REDIRECT_URI : undefined,
+    redirectUri: oauth ? config.SLACK_REDIRECT_URI : undefined,
     signingSecret:
       config.SLACK_SIGNING_SECRET ?? "socket-mode-does-not-use-this-secret",
-    scopes: oauthConfigured
-      ? ["app_mentions:read", "chat:write", "im:history"]
-      : undefined,
+    scopes: oauth ? BOT_SCOPES : undefined,
     socketMode: config.DATALAYER_SLACK_TRANSPORT === "socket",
-    stateSecret: oauthConfigured ? config.SLACK_STATE_SECRET : undefined,
-    token: oauthConfigured ? undefined : config.SLACK_BOT_TOKEN,
+    stateSecret: oauth && !stateStore ? config.SLACK_STATE_SECRET : undefined,
+    token: oauth ? undefined : config.SLACK_BOT_TOKEN,
   });
 }
+
+export type SlackListenerParts = Readonly<{
+  deliveries?: DeliveryHandler;
+  hosts?: HostInstallations;
+}>;
+
+const installationKeyOf = (body: {
+  api_app_id?: string;
+  enterprise_id?: string | null;
+  team_id?: string | null;
+}): SlackInstallationKey | undefined =>
+  body.api_app_id && body.team_id
+    ? {
+        appId: body.api_app_id,
+        enterpriseId: body.enterprise_id ?? undefined,
+        teamId: body.team_id,
+      }
+    : undefined;
 
 export function registerSlackListeners(
   app: App,
   config: Config,
   service: SlackAgentService,
   queue: WorkQueue<SlackJob>,
+  parts: SlackListenerParts = {},
 ): void {
-  queue.start(async (job) => service.handlePrompt(job.prompt, job.botUserId));
+  queue.start(async (job) => {
+    if ("delivery" in job) {
+      await parts.deliveries?.receive(job);
+      return;
+    }
+    await service.handlePrompt(job.prompt, job.botUserId);
+  });
   app.event("app_mention", async ({ body, event, logger }) => {
     const teamId = body.team_id;
     if (!teamId || !body.event_id || !event.user) return;
@@ -191,17 +306,15 @@ export function registerSlackListeners(
   });
 
   app.event("app_home_opened", async ({ body, event, client, logger }) => {
-    if (!body.team_id || !body.api_app_id || event.tab !== "home") return;
+    const key = installationKeyOf(body);
+    if (!key || event.tab !== "home") return;
     try {
       const view = await homeView(
         service.store,
-        {
-          appId: body.api_app_id,
-          enterpriseId: body.enterprise_id ?? undefined,
-          teamId: body.team_id,
-        },
+        key,
         event.user,
         service.webUrl,
+        service.links,
       );
       await client.views.publish({ user_id: event.user, view });
     } catch (error) {
@@ -209,15 +322,106 @@ export function registerSlackListeners(
     }
   });
 
-  app.event("app_uninstalled", async ({ body, logger }) => {
+  // Link buttons open their URL; Slack still sends the click, acknowledged here.
+  for (const action of [
+    CONNECT_ACTION,
+    "open_datalayer_slack_docs",
+    REVIEW_ACTION,
+  ])
+    app.action(action, async ({ ack }) => {
+      await ack();
+    });
+
+  // Approve or Decline (S-304): acknowledged at once, then a confirmation.
+  for (const [action, approve] of [
+    [APPROVE_ACTION, true],
+    [DECLINE_ACTION, false],
+  ] as const)
+    app.action(action, async ({ ack, body, client, logger }) => {
+      await ack();
+      try {
+        if (body.type !== "block_actions") return;
+        const pressed = body.actions[0];
+        if (!pressed || pressed.type !== "button") return;
+        const value = buttonValueOf(pressed.value);
+        const teamId = body.team?.id ?? body.user.team_id;
+        if (!teamId || !body.trigger_id) return;
+        const blocks = (body.message as { blocks?: unknown[] } | undefined)
+          ?.blocks;
+        const header = blocks?.[0] as { text?: { text?: string } } | undefined;
+        await client.views.open({
+          trigger_id: body.trigger_id,
+          view: confirmModal(
+            {
+              ...value,
+              app: body.api_app_id,
+              approve,
+              ent: body.enterprise?.id ?? undefined,
+              team: teamId,
+            },
+            header?.text?.text ?? "this action",
+          ),
+        });
+      } catch (error) {
+        logger.error("Failed to open the approval confirmation", error);
+      }
+    });
+
+  app.view(CONFIRM_VIEW, async ({ ack, body, view, logger }) => {
+    await ack();
     try {
-      await uninstallSlackWorkspace(service.store, {
-        appId: body.api_app_id,
-        enterpriseId: body.enterprise_id ?? undefined,
-        teamId: body.team_id,
+      if (!parts.deliveries) return;
+      const metadata = JSON.parse(view.private_metadata) as ConfirmMetadata;
+      // The modal's own signed payload names the workspace: a transplanted
+      // metadata naming another is refused.
+      const teamId = body.team?.id ?? body.user.team_id;
+      if (metadata.team !== teamId || metadata.app !== body.api_app_id) return;
+      const note =
+        view.state.values[NOTE_BLOCK]?.[NOTE_ACTION]?.value ?? undefined;
+      const outcome = await parts.deliveries.decide({
+        metadata,
+        note: note || undefined,
+        slackUserId: body.user.id,
       });
+      if (outcome !== "decided")
+        await service.slack.postPrivate(
+          {
+            appId: metadata.app,
+            enterpriseId: metadata.ent,
+            teamId: metadata.team,
+          },
+          body.user.id,
+          { text: DECISION_WORDS[outcome] },
+        );
+    } catch (error) {
+      logger.error("Failed to decide the approval", error);
+    }
+  });
+
+  const uninstall = async (key: SlackInstallationKey) =>
+    parts.hosts
+      ? parts.hosts.uninstall(key)
+      : uninstallSlackWorkspace(service.store, key);
+
+  app.event("app_uninstalled", async ({ body, logger }) => {
+    const key = installationKeyOf(body);
+    if (!key) return;
+    try {
+      await uninstall(key);
     } catch (error) {
       logger.error("Failed to remove an uninstalled Slack workspace", error);
+      throw error;
+    }
+  });
+
+  // The bot token revoked is the workspace gone for this app: the same cleanup.
+  app.event("tokens_revoked", async ({ body, event, logger }) => {
+    const key = installationKeyOf(body);
+    if (!key || (event.tokens.bot ?? []).length === 0) return;
+    try {
+      await uninstall(key);
+    } catch (error) {
+      logger.error("Failed to remove a revoked Slack workspace", error);
       throw error;
     }
   });
@@ -230,10 +434,12 @@ export async function uninstallSlackWorkspace(
   await store.deleteInstallation(key);
 }
 
-export type SlackJob = Readonly<{
-  botUserId?: string;
-  prompt: IncomingPrompt;
-}>;
+export type SlackJob =
+  | Readonly<{
+      botUserId?: string;
+      prompt: IncomingPrompt;
+    }>
+  | DeliveryJob;
 
 export async function seedDevelopmentInstallation(
   config: Config,

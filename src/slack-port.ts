@@ -6,6 +6,15 @@ export type SlackMessage = Readonly<{
 }>;
 
 export interface SlackPort {
+  /**
+   * A direct message from @Datalayer to one person (its Messages tab): where
+   * it was posted, so it can be updated.
+   */
+  postDirect(
+    key: SlackInstallationKey,
+    userId: string,
+    message: SlackMessage,
+  ): Promise<{ channelId: string; ts: string }>;
   postPrivate(
     key: SlackInstallationKey,
     userId: string,

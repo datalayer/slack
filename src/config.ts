@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DELIVERY_PATH } from "./deliveries.js";
+
 const optionalSecret = z.string().min(1).optional();
 
 const schema = z
@@ -22,12 +24,23 @@ const schema = z
     DATALAYER_DEFAULT_APP_ID: optionalSecret,
     DATALAYER_DEV_HOST_TOKEN: optionalSecret,
     /**
-     * The key ai-agents answered when this installation was bound
-     * (`POST /api/ai-agents/v1/apps/hosts/bind`): the installation proof the
-     * host credential exchange takes. One installation until the OAuth
-     * callback keeps each workspace's key beside its Slack installation.
+     * Development only: one host key (`POST /api/ai-agents/v1/apps/hosts/bind`)
+     * for a workspace installed without OAuth. Every OAuth installation keeps
+     * its own key, bound at install with the Ship card's code.
      */
     DATALAYER_HOST_KEY: optionalSecret,
+    /**
+     * This service's public HTTPS origin, where Datalayer pushes each
+     * installation's deliveries (`/datalayer/deliveries/{host}`); by default
+     * the origin of `SLACK_REDIRECT_URI`. Without one, the outbox is read.
+     */
+    DATALAYER_SLACK_PUBLIC_URL: z.url().optional(),
+    /** How often the outbox is read, in seconds; 0 reads it never. */
+    DATALAYER_DELIVERY_POLL_SECONDS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .default(30),
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,
     DATALAYER_DEV_SLACK_USER_ID: optionalSecret,
     SLACK_APP_ID: optionalSecret,
@@ -66,6 +79,14 @@ const schema = z
         path: ["DATALAYER_DEV_HOST_TOKEN"],
         message:
           "A development host token must never be configured in production.",
+      });
+    }
+    if (value.NODE_ENV !== "development" && value.DATALAYER_HOST_KEY) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATALAYER_HOST_KEY"],
+        message:
+          "One host key for every workspace is a development shortcut: each installation keeps its own, bound at install.",
       });
     }
     if (value.DATALAYER_SLACK_STORE === "postgres" && !value.DATABASE_URL) {
@@ -130,6 +151,18 @@ const schema = z
   });
 
 export type Config = z.infer<typeof schema>;
+
+/** Where Datalayer pushes an installation's deliveries, when this service has a public origin. */
+export function deliveryUrlOf(
+  config: Pick<Config, "DATALAYER_SLACK_PUBLIC_URL" | "SLACK_REDIRECT_URI">,
+  hostUid: string,
+): string | undefined {
+  const base = config.DATALAYER_SLACK_PUBLIC_URL ?? config.SLACK_REDIRECT_URI;
+  if (!base) return undefined;
+  const origin = new URL(base).origin;
+  if (!origin.startsWith("https://")) return undefined;
+  return `${origin}${DELIVERY_PATH}/${encodeURIComponent(hostUid)}`;
+}
 
 export function readConfig(
   environment: NodeJS.ProcessEnv = process.env,

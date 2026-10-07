@@ -18,8 +18,46 @@ export const IDEMPOTENCY_HEADER = "Idempotency-Key";
 export const PRESENTATION_VERSION = 1;
 
 export const bindSchema = z.object({
-  host: z.object({ uid: z.string().min(1), state: z.string() }).loose(),
+  host: z
+    .object({
+      uid: z.string().min(1),
+      state: z.string(),
+      name: z.string().optional(),
+      default_deployment: z.string().optional(),
+    })
+    .loose(),
   host_key: z.string().startsWith("dlhk_"),
+});
+
+/** What a link code is redeemed at: the landing's confirm page. */
+export const LINK_PAGE_PATH = "/hosts/link";
+
+export const linkStateSchema = z.object({
+  linked: z.boolean(),
+  principal_uid: z.string().optional(),
+});
+
+export const webhookSchema = z.object({
+  url: z.url(),
+  events: z.array(z.string()),
+  version: z.number().int(),
+  signing_secret: z.string().min(32),
+});
+
+/** One delivery of the outbox, as `GET …/self/deliveries` lists it. */
+export const outboxItemSchema = z
+  .object({
+    uid: z.string().min(1),
+    event: z.string(),
+    payload: z.record(z.string(), z.unknown()),
+    state: z.string(),
+  })
+  .loose();
+
+export const decisionSchema = z.object({
+  approval: z
+    .object({ id: z.string().nullable().optional(), status: z.string() })
+    .loose(),
 });
 
 export const linkCodeSchema = z.object({
@@ -124,6 +162,28 @@ export const deliverySchema = z.discriminatedUnion("event", [
   }),
 ]);
 export type HostDelivery = z.infer<typeof deliverySchema>;
+
+/**
+ * Where a delivery belongs in Slack: the target the adapter gave when it
+ * mapped the session to its thread (`PUT /apps/hosts/sessions/{uid}`), handed
+ * back verbatim with every delivery. `userId` is the Slack user the session's
+ * host token speaks for: the one an approval waits on.
+ */
+export const targetSchema = z.object({
+  appId: z.string().min(1),
+  channelId: z.string().min(1),
+  enterpriseId: z.string().optional(),
+  teamId: z.string().min(1),
+  threadTs: z.string().min(1),
+  userId: z.string().min(1),
+});
+export type DeliveryTarget = z.infer<typeof targetSchema>;
+
+/** An outbox item read as the delivery a push would have carried. */
+export function deliveryOfOutbox(item: unknown): HostDelivery {
+  const { uid, event, payload } = outboxItemSchema.parse(item);
+  return deliverySchema.parse({ delivery: uid, event, payload });
+}
 
 /**
  * Whether Slack may offer Approve and Reject: only what the server says a

@@ -21,7 +21,13 @@ export function safeSlackText(text: string): string {
 
 export class TurnPresentation {
   #answer = "";
+  #complete = false;
   #status = "Working…";
+
+  /** Whether the turn finished while it streamed: else a `turn.completed` delivery finishes it. */
+  get complete(): boolean {
+    return this.#complete;
+  }
 
   apply(update: AgentUpdate): void {
     switch (update.kind) {
@@ -36,6 +42,7 @@ export class TurnPresentation {
         break;
       case "complete":
         if (update.text && !this.#answer) this.#answer = update.text;
+        this.#complete = true;
         this.#status = "Complete";
         break;
       case "error":

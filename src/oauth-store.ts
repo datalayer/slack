@@ -6,6 +6,10 @@ import type {
 import type { Pool } from "pg";
 
 import type { EncryptedSecret, SecretCipher } from "./crypto.js";
+import type { SlackInstallation } from "./domain.js";
+import type { BoundHost } from "./host-client.js";
+import type { HostInstallations } from "./host-installations.js";
+import { bindCodeOfInstallation } from "./oauth-state.js";
 import type { SlackStore } from "./store.js";
 
 type OAuthRow = Readonly<{ installation: EncryptedSecret }>;
@@ -16,6 +20,8 @@ export class PostgresInstallationStore implements InstallationStore {
     readonly database: Pool,
     readonly cipher: SecretCipher,
     readonly slackStore: SlackStore,
+    /** Binds the workspace at Datalayer with the Ship card's code, and keeps its key. */
+    readonly hosts?: HostInstallations,
   ) {}
 
   async storeInstallation<AuthVersion extends "v1" | "v2">(
@@ -27,7 +33,20 @@ export class PostgresInstallationStore implements InstallationStore {
         "Enterprise Grid organization-wide installation is not supported yet.",
       );
     }
+    if (!installation.bot)
+      throw new Error("The Datalayer Slack app requires a bot installation.");
     const appId = installation.appId ?? this.appId;
+    const domainKey = {
+      appId,
+      enterpriseId: installation.enterprise?.id,
+      teamId,
+    };
+    // Bound first: an expired or spent code stores nothing, and the person
+    // installs again from the Ship tab.
+    const code = bindCodeOfInstallation(installation);
+    let bound: BoundHost | undefined;
+    if (code && this.hosts)
+      bound = await this.hosts.bind(domainKey, code, installation.team?.name);
     const key = oauthKey(appId, installation.enterprise?.id, teamId);
     const encrypted = this.cipher.encrypt(JSON.stringify(installation), key);
     await this.database.query(
@@ -39,19 +58,17 @@ export class PostgresInstallationStore implements InstallationStore {
       [appId, installation.enterprise?.id ?? "", teamId, encrypted],
     );
 
-    if (!installation.bot)
-      throw new Error("The Datalayer Slack app requires a bot installation.");
-    await this.slackStore.putInstallation({
-      appId,
+    const kept: SlackInstallation = {
+      ...domainKey,
       botToken: installation.bot.token,
       botUserId: installation.bot.userId,
-      enterpriseId: installation.enterprise?.id,
       installedBy: installation.user.id,
       scopes: installation.bot.scopes,
       status: "active",
-      teamId,
       updatedAt: new Date().toISOString(),
-    });
+    };
+    if (this.hosts) await this.hosts.keep(kept, bound);
+    else await this.slackStore.putInstallation(kept);
   }
 
   async fetchInstallation(

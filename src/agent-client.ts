@@ -32,6 +32,15 @@ export interface HostCredentials {
   forTurn(request: TurnRequest): Promise<HostSession>;
 }
 
+/** What the installation's key is, for a turn: `undefined` when it was never bound. */
+export type HostKeyLookup = (
+  request: TurnRequest,
+) => Promise<string | undefined>;
+
+/** Said when a workspace has no host key: it was installed without Datalayer's code. */
+export const NOT_BOUND =
+  "This Slack workspace is not connected to Datalayer: install @Datalayer again from the application's Ship tab.";
+
 /**
  * The host credential exchange (§4.3, 1): the installation's key and the
  * Slack user it speaks for, exchanged at ai-agents for a fifteen-minute host
@@ -40,21 +49,36 @@ export interface HostCredentials {
 export class HostKeyCredentials implements HostCredentials {
   constructor(
     readonly apiUrl: string,
-    readonly hostKeyFor: (request: TurnRequest) => Promise<string>,
+    readonly hostKeyFor: HostKeyLookup,
     readonly fetchImplementation: typeof fetch = fetch,
   ) {}
 
   async exchange(request: TurnRequest): Promise<HostExchange> {
+    const hostKey = await this.hostKeyFor(request);
+    if (!hostKey) throw new Error(NOT_BOUND);
+    return this.exchangeFor({
+      deploymentUid: request.applicationId,
+      externalUserId: request.externalUserId,
+      hostKey,
+    });
+  }
+
+  /** The exchange for one Slack user and deployment, with a key in hand (a delivery, an action). */
+  async exchangeFor(input: {
+    deploymentUid: string;
+    externalUserId: string;
+    hostKey: string;
+  }): Promise<HostExchange> {
     const response = await this.fetchImplementation(
       `${this.apiUrl}/api/ai-agents/v1/apps/hosts/self/token`,
       {
         body: JSON.stringify({
-          deployment_uid: request.applicationId,
-          external_user_id: request.externalUserId,
+          deployment_uid: input.deploymentUid,
+          external_user_id: input.externalUserId,
         }),
         headers: {
           "content-type": "application/json",
-          [HOST_KEY_HEADER]: await this.hostKeyFor(request),
+          [HOST_KEY_HEADER]: input.hostKey,
         },
         method: "POST",
       },
@@ -67,15 +91,37 @@ export class HostKeyCredentials implements HostCredentials {
   }
 
   async forTurn(request: TurnRequest): Promise<HostSession> {
-    const exchanged = await this.exchange(request);
-    return {
-      accessToken: exchanged.access_token,
-      agent: exchanged.session_api.agent,
-      bindable: true,
-      deploymentUid: exchanged.deployment.uid,
-      sessionApiUrl: exchanged.session_api.url,
-      userToken: exchanged.user_token,
-    };
+    return hostSessionOf(await this.exchange(request));
+  }
+}
+
+export function hostSessionOf(exchanged: HostExchange): HostSession {
+  return {
+    accessToken: exchanged.access_token,
+    agent: exchanged.session_api.agent,
+    bindable: true,
+    deploymentUid: exchanged.deployment.uid,
+    sessionApiUrl: exchanged.session_api.url,
+    userToken: exchanged.user_token,
+  };
+}
+
+/**
+ * A turn's credentials: the exchange when its workspace holds a host key;
+ * otherwise, in development only, the developer's own (`fallback`); otherwise
+ * a refusal saying the workspace is not connected.
+ */
+export class InstallationCredentials implements HostCredentials {
+  constructor(
+    readonly keyed: HostKeyCredentials,
+    readonly fallback?: HostCredentials,
+  ) {}
+
+  async forTurn(request: TurnRequest): Promise<HostSession> {
+    if (await this.keyed.hostKeyFor(request))
+      return this.keyed.forTurn(request);
+    if (this.fallback) return this.fallback.forTurn(request);
+    throw new Error(NOT_BOUND);
   }
 }
 
@@ -136,7 +182,7 @@ export class HttpAgentClient implements AgentClient {
     readonly apiUrl: string,
     readonly credentials: HostCredentials,
     readonly fetchImplementation: typeof fetch = fetch,
-    readonly hostKeyFor?: (request: TurnRequest) => Promise<string>,
+    readonly hostKeyFor?: HostKeyLookup,
   ) {}
 
   async startTurn(request: TurnRequest): Promise<TurnStream> {
@@ -175,13 +221,11 @@ export class HttpAgentClient implements AgentClient {
         });
     if (!response.ok || !response.body)
       throw new Error(`Datalayer refused the turn (${response.status}).`);
-    if (host.bindable && this.hostKeyFor)
-      await this.#bind(
-        request,
-        host,
-        sessionId,
-        await this.hostKeyFor(request),
-      );
+    const hostKey =
+      host.bindable && this.hostKeyFor
+        ? await this.hostKeyFor(request)
+        : undefined;
+    if (hostKey) await this.#bind(request, host, sessionId, hostKey);
     return {
       sessionId,
       updates: this.#updates(response.body, host, sessionId),
@@ -216,8 +260,17 @@ export class HttpAgentClient implements AgentClient {
     const response = await this.fetchImplementation(
       `${this.apiUrl}/api/ai-agents/v1/apps/hosts/sessions/${encodeURIComponent(sessionId)}`,
       {
+        // Handed back with every delivery (`targetSchema`): the thread, and
+        // the Slack user the host token speaks for, whom an approval waits on.
         body: JSON.stringify({
-          target: { appId, channelId, enterpriseId, teamId, threadTs },
+          target: {
+            appId,
+            channelId,
+            enterpriseId,
+            teamId,
+            threadTs,
+            userId: request.externalUserId,
+          },
         }),
         headers: {
           authorization: `Bearer ${host.accessToken}`,
@@ -260,28 +313,39 @@ export class HttpAgentClient implements AgentClient {
       yield { kind: "status", label: "Still working on this message…" };
       return;
     }
-    const response = await this.fetchImplementation(
-      `${host.sessionApiUrl}/${encodeURIComponent(sessionId)}/messages`,
-      { headers: { authorization: `Bearer ${host.accessToken}` } },
-    );
-    if (!response.ok) {
+    const text = await lastAnswer(this.fetchImplementation, host, sessionId);
+    if (text === null) {
       yield {
         kind: "error",
         message: "This message was already answered in Datalayer.",
       };
       return;
     }
-    const { messages } = (await response.json()) as {
-      messages?: Array<{ content?: unknown; role?: string }>;
-    };
-    const last = [...(messages ?? [])]
-      .reverse()
-      .find((message) => message.role === "assistant");
-    yield {
-      kind: "complete",
-      text: typeof last?.content === "string" ? last.content : undefined,
-    };
+    yield { kind: "complete", text };
   }
+}
+
+/**
+ * The session's last answer, read with the host token (what a replayed turn
+ * and a `turn.completed` delivery show); `null` when the session is not read.
+ */
+export async function lastAnswer(
+  fetchImplementation: typeof fetch,
+  host: HostSession,
+  sessionId: string,
+): Promise<string | undefined | null> {
+  const response = await fetchImplementation(
+    `${host.sessionApiUrl}/${encodeURIComponent(sessionId)}/messages`,
+    { headers: { authorization: `Bearer ${host.accessToken}` } },
+  );
+  if (!response.ok) return null;
+  const { messages } = (await response.json()) as {
+    messages?: Array<{ content?: unknown; role?: string }>;
+  };
+  const last = [...(messages ?? [])]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  return typeof last?.content === "string" ? last.content : undefined;
 }
 
 export function assertTrustedStreamUrl(
