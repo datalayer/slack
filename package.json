@@ -12,21 +12,21 @@
     "manifests"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:imports && npm run manifest:check && npm test && npm run build",
     "check:imports": "node scripts/check-forbidden-imports.mjs",
-    "dev": "tsx watch src/index.ts",
-    "dev:http": "DATALAYER_SLACK_TRANSPORT=http tsx watch src/index.ts",
-    "dev:socket": "DATALAYER_SLACK_TRANSPORT=socket tsx watch src/index.ts",
+    "dev": "tsx --env-file-if-exists=.env watch src/index.ts",
+    "dev:http": "DATALAYER_SLACK_TRANSPORT=http tsx --env-file-if-exists=.env watch src/index.ts",
+    "dev:socket": "DATALAYER_SLACK_TRANSPORT=socket tsx --env-file-if-exists=.env watch src/index.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint src test scripts",
     "manifest:check": "node scripts/render-manifest.mjs --check",
     "manifest:render": "node scripts/render-manifest.mjs",
-    "migrate": "tsx scripts/migrate.ts",
+    "migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",

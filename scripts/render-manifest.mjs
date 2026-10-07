@@ -5,16 +5,19 @@ const environments = {
     baseUrl: "https://slack-dev.datalayer.run",
     socket: "true",
     suffix: " Dev",
+    tokenRotation: "false",
   },
   staging: {
     baseUrl: "https://slack-staging.datalayer.run",
     socket: "false",
     suffix: " Staging",
+    tokenRotation: "true",
   },
   production: {
     baseUrl: "https://slack.datalayer.ai",
     socket: "false",
     suffix: "",
+    tokenRotation: "true",
   },
 };
 const expectedScopes = ["app_mentions:read", "chat:write", "im:history"];
@@ -23,7 +26,8 @@ function render(template, values) {
   return template
     .replaceAll("{{BASE_URL}}", values.baseUrl)
     .replaceAll("{{DISPLAY_SUFFIX}}", values.suffix)
-    .replaceAll("{{SOCKET_MODE}}", values.socket);
+    .replaceAll("{{SOCKET_MODE}}", values.socket)
+    .replaceAll("{{TOKEN_ROTATION}}", values.tokenRotation);
 }
 
 const template = await readFile("app-manifest.template.yaml", "utf8");

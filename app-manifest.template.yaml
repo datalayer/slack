@@ -33,4 +33,4 @@ settings:
     request_url: "{{BASE_URL}}/slack/events"
   org_deploy_enabled: false
   socket_mode_enabled: {{SOCKET_MODE}}
-  token_rotation_enabled: true
+  token_rotation_enabled: {{TOKEN_ROTATION}}
