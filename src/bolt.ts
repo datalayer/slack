@@ -208,6 +208,26 @@ export function registerSlackListeners(
       logger.error("Failed to publish App Home", error);
     }
   });
+
+  app.event("app_uninstalled", async ({ body, logger }) => {
+    try {
+      await uninstallSlackWorkspace(service.store, {
+        appId: body.api_app_id,
+        enterpriseId: body.enterprise_id ?? undefined,
+        teamId: body.team_id,
+      });
+    } catch (error) {
+      logger.error("Failed to remove an uninstalled Slack workspace", error);
+      throw error;
+    }
+  });
+}
+
+export async function uninstallSlackWorkspace(
+  store: SlackStore,
+  key: SlackInstallationKey,
+): Promise<void> {
+  await store.deleteInstallation(key);
 }
 
 export type SlackJob = Readonly<{

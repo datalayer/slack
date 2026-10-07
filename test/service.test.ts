@@ -133,4 +133,33 @@ describe("SlackAgentService", () => {
     });
     expect(slack.updates.at(-1)?.text).toContain("Hello from Datalayer.");
   });
+
+  it("drops queued work after its workspace is uninstalled", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      appId: "A1",
+      botToken: "token",
+      botUserId: "B1",
+      installedBy: "U0",
+      scopes: [],
+      status: "active",
+      teamId: "T1",
+      updatedAt: new Date(0).toISOString(),
+    });
+    await store.deleteInstallation({ appId: "A1", teamId: "T1" });
+    const slack = new FakeSlack();
+    const agents: AgentClient = { startTurn: vi.fn(), stopTurn: vi.fn() };
+    const service = new SlackAgentService(
+      store,
+      agents,
+      slack,
+      "https://datalayer.ai",
+    );
+
+    await service.handlePrompt({ ...prompt, eventId: "Ev-after-uninstall" });
+
+    expect(agents.startTurn).not.toHaveBeenCalled();
+    expect(slack.privateMessages).toHaveLength(0);
+    expect(slack.threadMessages).toHaveLength(0);
+  });
 });

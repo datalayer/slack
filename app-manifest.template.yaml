@@ -26,6 +26,7 @@ settings:
     bot_events:
       - app_home_opened
       - app_mention
+      - app_uninstalled
       - message.im
   interactivity:
     is_enabled: true

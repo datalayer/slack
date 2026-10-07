@@ -22,6 +22,7 @@ The repository currently provides the executable Phase 0/early Phase 2 foundatio
 - least-privilege manifests for development, staging and production;
 - production refusal when only the in-memory development store is configured;
 - encrypted, durable Slack OAuth installations with workspace-specific token routing;
+- uninstall cleanup that removes credentials and bindings and rejects late queued work;
 - CI checks that prevent Jupyter, JupyterLab, Lumino, React DOM and Datalayer Jupyter imports.
 
 Account-link callbacks, the host-token exchange, approval actions and Marketplace work still require the corresponding server/platform contracts. The service says this through configuration rather than using a workspace token as a human identity. Enterprise Grid organization-wide installation is intentionally refused until its ownership and routing model is implemented.

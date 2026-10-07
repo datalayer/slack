@@ -65,10 +65,25 @@ export class PostgresSlackStore implements SlackStore {
   }
 
   async deleteInstallation(key: SlackInstallationKey): Promise<void> {
-    await this.database.query(
-      "DELETE FROM slack_installations WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3",
-      [key.appId, enterprise(key.enterpriseId), key.teamId],
-    );
+    const client = await this.database.connect();
+    const values = [key.appId, enterprise(key.enterpriseId), key.teamId];
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "DELETE FROM slack_oauth_installations WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3",
+        values,
+      );
+      await client.query(
+        "DELETE FROM slack_installations WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3",
+        values,
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getDefaultApplication(
