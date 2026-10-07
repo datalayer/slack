@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+manifests/*.yaml
+package-lock.json
+app-manifest.template.yaml

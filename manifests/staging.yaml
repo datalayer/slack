@@ -1,0 +1,35 @@
+_metadata:
+  major_version: 2
+display_information:
+  name: "Datalayer Staging"
+  description: Ask your Datalayer agents and applications from Slack.
+  background_color: "#24292f"
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: "Datalayer Staging"
+    always_online: true
+oauth_config:
+  redirect_urls:
+    - "https://slack-staging.datalayer.run/slack/oauth/callback"
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - im:history
+settings:
+  event_subscriptions:
+    request_url: "https://slack-staging.datalayer.run/slack/events"
+    bot_events:
+      - app_home_opened
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: "https://slack-staging.datalayer.run/slack/events"
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: true
