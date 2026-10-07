@@ -8,7 +8,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
-    files: ["src/**/*.ts", "test/**/*.ts"],
+    files: ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"],
     languageOptions: { parserOptions: { projectService: true } },
     rules: {
       "@typescript-eslint/consistent-type-imports": "error",

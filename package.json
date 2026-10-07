@@ -26,6 +26,7 @@
     "lint": "eslint src test scripts",
     "manifest:check": "node scripts/render-manifest.mjs --check",
     "manifest:render": "node scripts/render-manifest.mjs",
+    "migrate": "tsx scripts/migrate.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -35,11 +36,13 @@
     "@slack/bolt": "5.1.0",
     "@slack/types": "3.2.0",
     "@slack/web-api": "8.2.0",
+    "pg": "8.23.1",
     "zod": "4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
     "@types/node": "24.12.2",
+    "@types/pg": "8.23.1",
     "eslint": "9.39.2",
     "prettier": "3.6.2",
     "tsx": "4.20.6",

@@ -7,6 +7,7 @@ import type { SlackMessage, SlackPort } from "../src/slack-port.js";
 import { MemorySlackStore } from "../src/store.js";
 
 const prompt: IncomingPrompt = {
+  appId: "A1",
   channelId: "C1",
   eventId: "Ev1",
   teamId: "T1",
@@ -68,7 +69,7 @@ describe("SlackAgentService", () => {
       "https://datalayer.ai",
     );
 
-    await service.handlePrompt(prompt, "A1", "B1");
+    await service.handlePrompt(prompt, "B1");
 
     expect(slack.privateMessages[0]?.text).toContain(
       "/docs/slack#install-and-connect",
@@ -112,8 +113,8 @@ describe("SlackAgentService", () => {
       "https://datalayer.ai",
     );
 
-    await service.handlePrompt(prompt, "A1", "B1");
-    await service.handlePrompt(prompt, "A1", "B1");
+    await service.handlePrompt(prompt, "B1");
+    await service.handlePrompt(prompt, "B1");
 
     expect(startTurn).toHaveBeenCalledTimes(1);
     expect(startTurn).toHaveBeenCalledWith(

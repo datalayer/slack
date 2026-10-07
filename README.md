@@ -67,6 +67,27 @@ The development token is accepted only in `NODE_ENV=development`; production con
 
 HTTP development uses `npm run dev:http`, a signing secret and an HTTPS tunnel whose `/slack/events` URL is configured in the development app.
 
+## Durable storage
+
+Production uses PostgreSQL for installations, linked identities, application defaults, thread/session bindings, event claims and durable worker jobs. Configure:
+
+```text
+DATALAYER_SLACK_STORE=postgres
+DATABASE_URL=postgresql://...
+SLACK_TOKEN_ENCRYPTION_KEY=<base64-encoded 32-byte key>
+SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
+```
+
+Create a key with `openssl rand -base64 32` and keep it in the platform secret manager. The key version is stored with every ciphertext so rotation can be introduced without ambiguous decryptions. Slack tokens are encrypted with AES-256-GCM and bound to their installation key as authenticated data.
+
+Apply the idempotent schema migration before starting a release:
+
+```bash
+npm run migrate
+```
+
+The PostgreSQL queue uses `FOR UPDATE SKIP LOCKED`, so multiple workers may process different Slack jobs safely. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes.
+
 ## Checks
 
 ```bash

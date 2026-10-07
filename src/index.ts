@@ -4,16 +4,15 @@ import {
   createBoltApp,
   registerSlackListeners,
   seedDevelopmentInstallation,
-  type SlackJob,
 } from "./bolt.js";
 import { readConfig } from "./config.js";
-import { MemoryWorkQueue } from "./queue.js";
+import { createRuntimeResources } from "./resources.js";
 import { SlackAgentService } from "./service.js";
-import { MemorySlackStore } from "./store.js";
 
 async function main(): Promise<void> {
   const config = readConfig();
-  const store = new MemorySlackStore();
+  const resources = createRuntimeResources(config);
+  const { queue, store } = resources;
   await seedDevelopmentInstallation(config, store);
   const app = createBoltApp(config);
   const slack = new BoltSlackPort(app.client);
@@ -29,13 +28,22 @@ async function main(): Promise<void> {
     slack,
     config.DATALAYER_WEB_URL,
   );
-  const queue = new MemoryWorkQueue<SlackJob>();
   registerSlackListeners(app, config, service, queue);
 
   await app.start(config.PORT);
   app.logger.info(
     `@Datalayer Slack is listening on ${config.PORT} (${config.DATALAYER_SLACK_TRANSPORT}).`,
   );
+
+  let closing = false;
+  const close = async (): Promise<void> => {
+    if (closing) return;
+    closing = true;
+    await app.stop();
+    await resources.close();
+  };
+  process.once("SIGINT", () => void close());
+  process.once("SIGTERM", () => void close());
 }
 
 main().catch((error) => {

@@ -18,12 +18,11 @@ export class SlackAgentService {
 
   async handlePrompt(
     prompt: IncomingPrompt,
-    appId: string,
     botUserId?: string,
   ): Promise<void> {
     if (!(await this.store.claimEvent(prompt.eventId))) return;
     const installationKey: SlackInstallationKey = {
-      appId,
+      appId: prompt.appId,
       enterpriseId: prompt.enterpriseId,
       teamId: prompt.teamId,
     };
@@ -69,6 +68,7 @@ export class SlackAgentService {
     });
     await this.store.putThread({
       applicationId,
+      appId: prompt.appId,
       channelId: prompt.channelId,
       enterpriseId: prompt.enterpriseId,
       openedByPrincipalId: link.datalayerPrincipalId,
@@ -119,6 +119,7 @@ export class SlackAgentService {
 }
 
 export function slackThreadKey(input: {
+  appId: string;
   channel: string;
   enterpriseId?: string;
   teamId: string;
@@ -126,6 +127,7 @@ export function slackThreadKey(input: {
   ts: string;
 }): ThreadKey {
   return {
+    appId: input.appId,
     channelId: input.channel,
     enterpriseId: input.enterpriseId,
     teamId: input.teamId,

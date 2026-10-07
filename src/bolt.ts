@@ -66,13 +66,12 @@ export function registerSlackListeners(
   service: SlackAgentService,
   queue: WorkQueue<SlackJob>,
 ): void {
-  queue.start(async (job) =>
-    service.handlePrompt(job.prompt, job.appId, job.botUserId),
-  );
+  queue.start(async (job) => service.handlePrompt(job.prompt, job.botUserId));
   app.event("app_mention", async ({ body, event, logger }) => {
     const teamId = body.team_id;
     if (!teamId || !body.event_id || !event.user) return;
     const thread = slackThreadKey({
+      appId: body.api_app_id,
       channel: event.channel,
       enterpriseId: body.enterprise_id ?? undefined,
       teamId,
@@ -87,7 +86,6 @@ export function registerSlackListeners(
     };
     try {
       await queue.enqueue({
-        appId: body.api_app_id,
         botUserId: config.SLACK_BOT_USER_ID,
         prompt,
       });
@@ -113,6 +111,7 @@ export function registerSlackListeners(
     )
       return;
     const thread = slackThreadKey({
+      appId: body.api_app_id,
       channel: event.channel,
       enterpriseId: body.enterprise_id ?? undefined,
       teamId: body.team_id,
@@ -121,7 +120,6 @@ export function registerSlackListeners(
     });
     try {
       await queue.enqueue({
-        appId: body.api_app_id,
         prompt: {
           ...thread,
           eventId: body.event_id,
@@ -155,7 +153,6 @@ export function registerSlackListeners(
 }
 
 export type SlackJob = Readonly<{
-  appId: string;
   botUserId?: string;
   prompt: IncomingPrompt;
 }>;

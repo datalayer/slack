@@ -26,4 +26,15 @@ describe("configuration", () => {
       }),
     ).toThrow(/durable installation|development host token/);
   });
+
+  it("requires a database and encryption key for PostgreSQL", () => {
+    expect(() =>
+      readConfig({
+        DATALAYER_SLACK_STORE: "postgres",
+        DATALAYER_SLACK_TRANSPORT: "http",
+        NODE_ENV: "test",
+        SLACK_SIGNING_SECRET: "signing-secret",
+      }),
+    ).toThrow(/DATABASE_URL|SLACK_TOKEN_ENCRYPTION_KEY/);
+  });
 });

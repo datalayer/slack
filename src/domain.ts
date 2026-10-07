@@ -23,12 +23,11 @@ export type SlackUserLink = Readonly<{
 }> &
   SlackInstallationKey;
 
-export type ThreadKey = Readonly<{
-  channelId: string;
-  enterpriseId?: string;
-  teamId: string;
-  threadTs: string;
-}>;
+export type ThreadKey = SlackInstallationKey &
+  Readonly<{
+    channelId: string;
+    threadTs: string;
+  }>;
 
 export type ThreadBinding = ThreadKey &
   Readonly<{
@@ -82,5 +81,5 @@ export function userLinkKey(
 }
 
 export function threadKey(value: ThreadKey): string {
-  return `${value.enterpriseId ?? "-"}:${value.teamId}:${value.channelId}:${value.threadTs}`;
+  return `${installationKey(value)}:${value.channelId}:${value.threadTs}`;
 }

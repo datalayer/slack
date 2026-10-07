@@ -9,7 +9,14 @@ const schema = z
       .default("development"),
     PORT: z.coerce.number().int().positive().default(3000),
     DATALAYER_SLACK_TRANSPORT: z.enum(["http", "socket"]).default("http"),
-    DATALAYER_SLACK_STORE: z.enum(["memory"]).default("memory"),
+    DATALAYER_SLACK_STORE: z.enum(["memory", "postgres"]).default("memory"),
+    DATABASE_URL: optionalSecret,
+    SLACK_TOKEN_ENCRYPTION_KEY: optionalSecret,
+    SLACK_TOKEN_ENCRYPTION_KEY_VERSION: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(1),
     DATALAYER_API_URL: z.url().default("https://prod1.datalayer.run"),
     DATALAYER_WEB_URL: z.url().default("https://datalayer.ai"),
     DATALAYER_DEFAULT_APP_ID: optionalSecret,
@@ -44,6 +51,23 @@ const schema = z
         path: ["DATALAYER_DEV_HOST_TOKEN"],
         message:
           "A development host token must never be configured in production.",
+      });
+    }
+    if (value.DATALAYER_SLACK_STORE === "postgres" && !value.DATABASE_URL) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATABASE_URL"],
+        message: "PostgreSQL storage requires DATABASE_URL.",
+      });
+    }
+    if (
+      value.DATALAYER_SLACK_STORE === "postgres" &&
+      !value.SLACK_TOKEN_ENCRYPTION_KEY
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["SLACK_TOKEN_ENCRYPTION_KEY"],
+        message: "PostgreSQL storage requires SLACK_TOKEN_ENCRYPTION_KEY.",
       });
     }
     if (
