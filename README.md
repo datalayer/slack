@@ -41,7 +41,37 @@ The quickest supported setup is one development workspace over Socket Mode. It e
 
 A complete agent answer additionally requires the Datalayer host contract implemented by this adapter: `POST /api/v1/apps/sessions/turns` returning a same-origin NDJSON `stream_url`. The individual account-link and production host-token exchange endpoints are not implemented yet. Development therefore seeds one Slack-user-to-Datalayer-principal link from `.env` and uses `DATALAYER_DEV_HOST_TOKEN`. Do not use that shortcut outside `NODE_ENV=development`.
 
-## First setup: Socket Mode
+## Workspace and distribution model
+
+There are two distinct setup paths:
+
+| Path                | Who configures Slack                                                                             | Installation method                                | Intended use                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------- |
+| Datalayer workspace | A Datalayer developer                                                                            | Development manifest, Socket Mode and local tokens | Development and internal testing                      |
+| Customer workspace  | Datalayer configures the app once; a customer workspace administrator only approves installation | Public Datalayer OAuth install URL                 | External customer use, unlisted pilot and Marketplace |
+
+### Datalayer's own workspace
+
+The instructions in the next section are for Datalayer developers. The `Datalayer Dev` app belongs to Datalayer's development workspace. A developer creates it from [`manifests/development.yaml`](manifests/development.yaml), obtains its `xapp-` and `xoxb-` credentials, and runs the adapter locally over Socket Mode. These credentials are internal secrets and must never be given to customers.
+
+### Third-party customer workspaces
+
+The product goal is that any eligible Slack customer can register with Datalayer, install `@Datalayer` in a workspace they administer, connect their Datalayer organization and account, select an allowed LOOP application, and talk to it by direct message or `@Datalayer` mention.
+
+A customer does **not** create a separate Slack app, paste a manifest, generate an app token or send Datalayer an `xoxb-` token. Datalayer owns one staging/production Slack application and publishes an **Install @Datalayer** link backed by `GET /slack/install`. Slack's OAuth consent flow issues a workspace-specific installation to Datalayer; the service encrypts it and selects it by app, enterprise and team for every Slack API call.
+
+The intended customer journey is:
+
+1. Sign in or register at Datalayer and select a Datalayer organization.
+2. Choose **Install @Datalayer in Slack**.
+3. Select a Slack workspace and approve the three baseline bot scopes.
+4. Return to Datalayer, bind the Slack workspace to the selected organization and choose allowed/default LOOP applications.
+5. Open App Home and connect the individual Slack member to their Datalayer identity through a one-use browser handoff.
+6. Invite `@Datalayer` to a channel and mention it, or send it a direct message.
+
+The encrypted multi-workspace OAuth store, reinstall handling, tenant-specific token routing and uninstall cleanup are implemented. Public customer registration is **not available yet** because organization binding, individual account-link callbacks, audience-bound host-token exchange, administration UI and public distribution operations still need their authoritative Datalayer contracts. Until those are implemented and tested, use only the Datalayer development workspace flow below; do not onboard third-party customers manually with shared tokens.
+
+## Datalayer workspace setup: Socket Mode
 
 Follow these steps in order. They create a development-only Slack app and keep all work in memory.
 
