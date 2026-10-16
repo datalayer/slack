@@ -5,7 +5,9 @@
 # 0.1.2: SLACK round 2 — streaming bounds and fallback, 429s rejected and retried (S-206); the turn lock on a
 #        thread's first turn, heartbeats and lease renewal (S-207); App Home's starters (S-104); Open in
 #        Datalayer only through a handoff (S-305); dead letters (S-405); migrations 006–007.
-VERSION ?= 0.1.2
+# 0.1.3: on the shared host kit (agent-runtimes 1.5.46 lib/portable/hosts, DISCORD DC-004): one esbuild
+#        bundle (dist/index.js, dist/migrate.js, dist/dead-letters.js); the migrate job is `node dist/migrate.js`.
+VERSION ?= 0.1.3
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 
