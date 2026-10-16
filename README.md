@@ -65,7 +65,7 @@ The service says this through configuration rather than using a workspace token 
 
 ## Why each scope exists
 
-The manifests request exactly three bot scopes and no user scope. `test/operations.test.ts` fails if a manifest asks for more.
+The manifests request exactly three bot scopes and no user scope. `scripts/manifest.ts` parses each manifest as YAML and holds it to a strict schema (a key moved out of its parent fails), to exactly these scopes and five events, and to its environment's URLs, Socket Mode and token rotation; `test/manifest.test.ts` and `npm run manifest:check` fail if a manifest asks for more.
 
 | Scope               | Why @Datalayer needs it                                                                                                                         | What it does not allow                                                            |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -442,6 +442,8 @@ Render the three manifests after changing the template:
 ```bash
 npm run manifest:render
 ```
+
+`npm run manifest:render` refuses a template whose rendering does not validate. `npm run manifest:check` (CI) fails when a committed manifest is not byte for byte what the template renders, or does not validate on its own. The check validates against the schema of the fields this app uses; it does not call Slack's `apps.manifest.validate`, which needs an app configuration token.
 
 ## Security boundary
 

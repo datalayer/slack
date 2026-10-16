@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { createBoltApp, BOT_SCOPES } from "../src/bolt.js";
+import { createBoltApp } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
 import {
   healthRoutes,
@@ -156,66 +156,6 @@ describe("redacted logs and pseudonymous traces (S-101, §9)", () => {
     });
     expect(lines[0]).not.toContain("C1");
     expect(span["datalayer.slack.installation"]).toBe(pseudonym("A1:-:T1"));
-  });
-});
-
-describe("the manifests (S-006, S-107)", () => {
-  const manifest = (name: string) =>
-    readFileSync(new URL(`../manifests/${name}.yaml`, import.meta.url), "utf8");
-
-  /** The bot scopes a manifest requests, and whether it requests any user scope. */
-  function scopesOf(text: string): { bot: string[]; user: boolean } {
-    const lines = text.split("\n");
-    const start = lines.findIndex((line) => /^\s+bot:\s*$/.test(line));
-    const bot: string[] = [];
-    for (const line of lines.slice(start + 1)) {
-      const item = /^\s+-\s+(\S+)\s*$/.exec(line);
-      if (!item) break;
-      bot.push(item[1] ?? "");
-    }
-    return { bot, user: lines.some((line) => /^\s+user:\s*$/.test(line)) };
-  }
-
-  it.each(["development", "staging", "production"])(
-    "%s requests exactly the baseline bot scopes and no user scope",
-    (name) => {
-      const text = manifest(name);
-      expect(scopesOf(text)).toEqual({ bot: [...BOT_SCOPES], user: false });
-      expect(text).not.toContain("chat:write.public");
-      expect(text).not.toMatch(
-        /history:\s*$|channels:history|groups:history|mpim:history|files:|search:read|users:read/m,
-      );
-    },
-  );
-
-  it("asks OAuth for the same scopes the manifest grants", () => {
-    expect(BOT_SCOPES).toEqual([
-      "app_mentions:read",
-      "chat:write",
-      "im:history",
-    ]);
-  });
-
-  it("subscribes only to the events the service handles", () => {
-    const text = manifest("production");
-    const events = [
-      ...text.matchAll(/^\s+-\s+(app_\w+|message\.im|tokens_revoked)\s*$/gm),
-    ].map((match) => match[1]);
-    expect(events).toEqual([
-      "app_home_opened",
-      "app_mention",
-      "app_uninstalled",
-      "message.im",
-      "tokens_revoked",
-    ]);
-  });
-
-  it("uses Socket Mode only in development and rotates tokens elsewhere", () => {
-    expect(manifest("development")).toContain("socket_mode_enabled: true");
-    for (const name of ["staging", "production"]) {
-      expect(manifest(name)).toContain("socket_mode_enabled: false");
-      expect(manifest(name)).toContain("token_rotation_enabled: true");
-    }
   });
 });
 
