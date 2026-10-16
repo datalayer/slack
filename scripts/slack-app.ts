@@ -115,8 +115,9 @@ export function withExports(
 /** The value an rc exports for name, or undefined. */
 export function exportOf(text: string, name: string): string | undefined {
   const match = new RegExp(`^\\s*export ${name}=(.*)$`, "m").exec(text);
-  if (!match) return undefined;
-  return match[1]
+  const value = match?.[1];
+  if (value === undefined) return undefined;
+  return value
     .trim()
     .replace(/^'(.*)'$/s, "$1")
     .replace(/^"(.*)"$/s, "$1");
@@ -332,6 +333,8 @@ async function main(argv: string[]): Promise<void> {
   if (k8sTarget) {
     const deploy = deployEntries(env, rc, outcome.appId, outcome.credentials);
     const [namespace, name] = k8sTarget.split("/");
+    if (!namespace || !name)
+      throw new Error(`SECRET= must be namespace/name, not ${k8sTarget}.`);
     await patchSecret(namespace, name, deploy.secret);
     console.log(
       `Signing and client secrets written to the Secret ${k8sTarget}.`,

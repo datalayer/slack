@@ -191,7 +191,7 @@ export class SlackAgentService {
     if (claim.outcome === "busy") {
       this.#refused(prompt, "busy");
       await this.privately(prompt, prompt.userId, {
-        text: "@Datalayer is still answering in this thread. Wait for its answer, or press Stop on it, then ask again.",
+        text: "@Datalayer is still answering in this thread. Wait for its answer, or press Stop on it when it shows one, then ask again.",
       });
       return;
     }

@@ -62,8 +62,8 @@ describe("the configuration token", () => {
       refreshToken: "xoxe-new",
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0].params.get("refresh_token")).toBe("xoxe-old");
-    expect(calls[0].auth).toBeNull();
+    expect(calls[0]?.params.get("refresh_token")).toBe("xoxe-old");
+    expect(calls[0]?.auth).toBeNull();
   });
 
   it("fails on Slack's refusal, naming the method", async () => {
@@ -105,7 +105,7 @@ describe("apply", () => {
       "apps.manifest.create",
     ]);
     expect(calls.every((one) => one.auth === "Bearer xoxe.xoxp-t")).toBe(true);
-    const sent = JSON.parse(calls[1].params.get("manifest") ?? "{}") as {
+    const sent = JSON.parse(calls[1]?.params.get("manifest") ?? "{}") as {
       display_information?: { name?: string };
     };
     expect(sent.display_information?.name).toBe("Datalayer Dev");
@@ -132,7 +132,7 @@ describe("apply", () => {
       "apps.manifest.validate",
       "apps.manifest.update",
     ]);
-    expect(calls[1].params.get("app_id")).toBe("A123");
+    expect(calls[1]?.params.get("app_id")).toBe("A123");
     expect(outcome).toEqual({
       env: "development",
       appId: "A123",
