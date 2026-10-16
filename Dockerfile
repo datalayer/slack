@@ -1,12 +1,12 @@
 # @Datalayer for Slack: the Bolt service (plans/SLACK.md §10, S-101).
 # Built from a clean export of this repository (git archive), never a
-# working tree. The exact versions of package.json are installed; a
-# lockfile is used when the export carries one.
+# working tree. The exact versions of package.json are installed; no
+# lockfile is read (the monorepo keeps none).
 
 FROM node:20.19-bookworm-slim AS build
 WORKDIR /app
-COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts --no-audit --no-fund; else npm install --ignore-scripts --no-audit --no-fund; fi
+COPY package.json ./
+RUN npm install --ignore-scripts --no-audit --no-fund --no-package-lock
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
@@ -14,8 +14,8 @@ RUN npm run build
 FROM node:20.19-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev --ignore-scripts --no-audit --no-fund; else npm install --omit=dev --ignore-scripts --no-audit --no-fund; fi \
+COPY package.json ./
+RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund --no-package-lock \
   && npm cache clean --force
 COPY --from=build /app/lib ./lib
 COPY migrations ./migrations
