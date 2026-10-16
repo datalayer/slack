@@ -2,7 +2,11 @@ import { spawn } from "node:child_process";
 import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
-import { ENVIRONMENT_NAMES, type EnvironmentName, validate } from "./manifest.js";
+import {
+  ENVIRONMENT_NAMES,
+  type EnvironmentName,
+  validate,
+} from "./manifest.js";
 
 /**
  * Creates or updates a Slack app from manifests/<env>.yaml through Slack's App
@@ -63,7 +67,11 @@ export async function call(
   if (!response.ok) throw new SlackApiError(method, `http_${response.status}`);
   const body = (await response.json()) as Record<string, unknown>;
   if (body.ok !== true)
-    throw new SlackApiError(method, String(body.error ?? "unknown"), body.errors);
+    throw new SlackApiError(
+      method,
+      String(body.error ?? "unknown"),
+      body.errors,
+    );
   return body;
 }
 
@@ -86,10 +94,14 @@ export async function rotate(
  * The rc with each `export NAME=value` set: a line replaced in place, or
  * appended. Values are single-quoted so the shell reads them verbatim.
  */
-export function withExports(text: string, entries: Record<string, string>): string {
+export function withExports(
+  text: string,
+  entries: Record<string, string>,
+): string {
   let out = text;
   for (const [name, value] of Object.entries(entries)) {
-    if (!/^[A-Z][A-Z0-9_]*$/.test(name)) throw new Error(`not an rc name: ${name}`);
+    if (!/^[A-Z][A-Z0-9_]*$/.test(name))
+      throw new Error(`not an rc name: ${name}`);
     if (value.includes("'")) throw new Error(`${name}: a quote in the value`);
     const line = `export ${name}='${value}'`;
     const pattern = new RegExp(`^\\s*export ${name}=.*$`, "m");
@@ -104,7 +116,10 @@ export function withExports(text: string, entries: Record<string, string>): stri
 export function exportOf(text: string, name: string): string | undefined {
   const match = new RegExp(`^\\s*export ${name}=(.*)$`, "m").exec(text);
   if (!match) return undefined;
-  return match[1].trim().replace(/^'(.*)'$/s, "$1").replace(/^"(.*)"$/s, "$1");
+  return match[1]
+    .trim()
+    .replace(/^'(.*)'$/s, "$1")
+    .replace(/^"(.*)"$/s, "$1");
 }
 
 export function envKey(env: EnvironmentName): string {
@@ -139,8 +154,10 @@ export function deployEntries(
 ): { secret: Record<string, string>; ids: Record<string, string> } {
   const key = envKey(env);
   const clientId = credentials?.client_id ?? exportOf(rc, `${key}_CLIENT_ID`);
-  const clientSecret = credentials?.client_secret ?? exportOf(rc, `${key}_CLIENT_SECRET`);
-  const signingSecret = credentials?.signing_secret ?? exportOf(rc, `${key}_SIGNING_SECRET`);
+  const clientSecret =
+    credentials?.client_secret ?? exportOf(rc, `${key}_CLIENT_SECRET`);
+  const signingSecret =
+    credentials?.signing_secret ?? exportOf(rc, `${key}_SIGNING_SECRET`);
   const missing = [
     ["CLIENT_ID", clientId],
     ["CLIENT_SECRET", clientSecret],
@@ -149,9 +166,14 @@ export function deployEntries(
     .filter(([, value]) => !value)
     .map(([name]) => `${key}_${name}`);
   if (missing.length || !clientId || !clientSecret || !signingSecret)
-    throw new Error(`${missing.join(", ")} not in the rc: Slack answers them only when it creates the app.`);
+    throw new Error(
+      `${missing.join(", ")} not in the rc: Slack answers them only when it creates the app.`,
+    );
   return {
-    secret: { SLACK_SIGNING_SECRET: signingSecret, SLACK_CLIENT_SECRET: clientSecret },
+    secret: {
+      SLACK_SIGNING_SECRET: signingSecret,
+      SLACK_CLIENT_SECRET: clientSecret,
+    },
     ids: { SLACK_APP_ID: appId, SLACK_CLIENT_ID: clientId },
   };
 }
@@ -175,18 +197,35 @@ export async function apply(
   const manifest = JSON.stringify(validate(manifestText, env));
   await call(fetchImpl, "apps.manifest.validate", { manifest }, token);
   if (existingAppId) {
-    await call(fetchImpl, "apps.manifest.update", { app_id: existingAppId, manifest }, token);
+    await call(
+      fetchImpl,
+      "apps.manifest.update",
+      { app_id: existingAppId, manifest },
+      token,
+    );
     return { env, appId: existingAppId, action: "updated" };
   }
-  const body = await call(fetchImpl, "apps.manifest.create", { manifest }, token);
+  const body = await call(
+    fetchImpl,
+    "apps.manifest.create",
+    { manifest },
+    token,
+  );
   const credentials = body.credentials as Credentials | undefined;
-  if (typeof body.app_id !== "string" || !credentials?.client_secret || !credentials.signing_secret)
+  if (
+    typeof body.app_id !== "string" ||
+    !credentials?.client_secret ||
+    !credentials.signing_secret
+  )
     throw new SlackApiError("apps.manifest.create", "no_credentials_in_answer");
   return {
     env,
     appId: body.app_id,
     action: "created",
-    authorizeUrl: typeof body.oauth_authorize_url === "string" ? body.oauth_authorize_url : undefined,
+    authorizeUrl:
+      typeof body.oauth_authorize_url === "string"
+        ? body.oauth_authorize_url
+        : undefined,
     credentials,
   };
 }
@@ -208,32 +247,53 @@ export function patchSecret(
   return new Promise((resolve, reject) => {
     const child = spawnImpl(
       "kubectl",
-      ["patch", "secret", name, "-n", namespace, "--type", "merge", "--patch-file", "/dev/stdin"],
+      [
+        "patch",
+        "secret",
+        name,
+        "-n",
+        namespace,
+        "--type",
+        "merge",
+        "--patch-file",
+        "/dev/stdin",
+      ],
       { stdio: ["pipe", "ignore", "inherit"] },
     );
     child.on("error", reject);
     child.on("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`kubectl patch secret ${name}: exit ${code}`)),
+      code === 0
+        ? resolve()
+        : reject(new Error(`kubectl patch secret ${name}: exit ${code}`)),
     );
     child.stdin?.end(JSON.stringify({ stringData: values }));
   });
 }
 
 async function main(argv: string[]): Promise<void> {
-  const env = argv.find((one) => !one.startsWith("--")) as EnvironmentName | undefined;
+  const env = argv.find((one) => !one.startsWith("--")) as
+    | EnvironmentName
+    | undefined;
   if (!env || !ENVIRONMENT_NAMES.includes(env))
-    throw new Error(`usage: slack-app <${ENVIRONMENT_NAMES.join("|")}> [--k8s-secret namespace/name]`);
+    throw new Error(
+      `usage: slack-app <${ENVIRONMENT_NAMES.join("|")}> [--k8s-secret namespace/name]`,
+    );
   const k8sIndex = argv.indexOf("--k8s-secret");
   const k8sTarget = k8sIndex >= 0 ? argv[k8sIndex + 1] : undefined;
   if (k8sIndex >= 0 && !k8sTarget?.includes("/"))
-    throw new Error("--k8s-secret takes namespace/name, e.g. datalayer-api/datalayer-slack-env");
+    throw new Error(
+      "--k8s-secret takes namespace/name, e.g. datalayer-api/datalayer-slack-env",
+    );
   const rcPath = process.env.DATALAYER_SLACK_RC ?? RC_DEFAULT;
-  const deployRcPath = process.env.DATALAYER_SLACK_DEPLOY_RC ?? DEPLOY_RC_DEFAULT;
+  const deployRcPath =
+    process.env.DATALAYER_SLACK_DEPLOY_RC ?? DEPLOY_RC_DEFAULT;
 
   let rc = await readFile(rcPath, "utf8");
   const refresh = exportOf(rc, "DATALAYER_SLACK_CONFIG_REFRESH_TOKEN");
   if (!refresh)
-    throw new Error(`DATALAYER_SLACK_CONFIG_REFRESH_TOKEN is not in ${rcPath}: generate a configuration token at api.slack.com/apps.`);
+    throw new Error(
+      `DATALAYER_SLACK_CONFIG_REFRESH_TOKEN is not in ${rcPath}: generate a configuration token at api.slack.com/apps.`,
+    );
   const rotated = await rotate(fetch, refresh);
   rc = withExports(rc, {
     DATALAYER_SLACK_CONFIG_TOKEN: rotated.token,
@@ -242,24 +302,47 @@ async function main(argv: string[]): Promise<void> {
   await writeRc(rcPath, rc);
   console.log("Configuration token rotated; both tokens saved to the rc.");
 
-  const manifestText = await readFile(new URL(`../manifests/${env}.yaml`, import.meta.url), "utf8");
+  const manifestText = await readFile(
+    new URL(`../manifests/${env}.yaml`, import.meta.url),
+    "utf8",
+  );
   const existing = exportOf(rc, `${envKey(env)}_APP_ID`);
-  const outcome = await apply(fetch, rotated.token, env, manifestText, existing);
+  const outcome = await apply(
+    fetch,
+    rotated.token,
+    env,
+    manifestText,
+    existing,
+  );
   if (outcome.action === "created" && outcome.credentials) {
-    rc = withExports(rc, createdEntries(env, outcome.appId, outcome.credentials));
+    rc = withExports(
+      rc,
+      createdEntries(env, outcome.appId, outcome.credentials),
+    );
     await writeRc(rcPath, rc);
-    console.log(`Created ${env} app ${outcome.appId}; ids and secrets saved to the rc as ${envKey(env)}_*.`);
+    console.log(
+      `Created ${env} app ${outcome.appId}; ids and secrets saved to the rc as ${envKey(env)}_*.`,
+    );
     if (outcome.authorizeUrl) console.log(`Install: ${outcome.authorizeUrl}`);
   } else {
-    console.log(`Updated ${env} app ${outcome.appId} from manifests/${env}.yaml.`);
+    console.log(
+      `Updated ${env} app ${outcome.appId} from manifests/${env}.yaml.`,
+    );
   }
   if (k8sTarget) {
     const deploy = deployEntries(env, rc, outcome.appId, outcome.credentials);
     const [namespace, name] = k8sTarget.split("/");
     await patchSecret(namespace, name, deploy.secret);
-    console.log(`Signing and client secrets written to the Secret ${k8sTarget}.`);
-    await writeRc(deployRcPath, withExports(await readFile(deployRcPath, "utf8"), deploy.ids));
-    console.log(`SLACK_APP_ID and SLACK_CLIENT_ID of ${outcome.appId} saved to ${deployRcPath}.`);
+    console.log(
+      `Signing and client secrets written to the Secret ${k8sTarget}.`,
+    );
+    await writeRc(
+      deployRcPath,
+      withExports(await readFile(deployRcPath, "utf8"), deploy.ids),
+    );
+    console.log(
+      `SLACK_APP_ID and SLACK_CLIENT_ID of ${outcome.appId} saved to ${deployRcPath}.`,
+    );
   }
 }
 
