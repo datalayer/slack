@@ -92,7 +92,7 @@ export class BotTokens {
       );
     if (!this.options.refresh)
       throw new Error(
-        "A rotating bot token needs SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to be refreshed.",
+        "A rotating bot token needs DATALAYER_SLACK_CLIENT_ID and DATALAYER_SLACK_CLIENT_SECRET to be refreshed.",
       );
     const refreshed = await this.options.refresh(installation.botRefreshToken);
     const now = this.#now();

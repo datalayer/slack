@@ -174,7 +174,7 @@ The adapter's side is in `src/deliveries.ts`: the route
 - **Slack to this service:** the signing secret (HTTP), or the app-level token
   (Socket Mode, development only).
 - **This service to ai-agents:** each workspace's host key, encrypted at rest
-  (`SLACK_TOKEN_ENCRYPTION_KEY`, AES-256-GCM, versioned). A host token per
+  (`DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY`, AES-256-GCM, versioned). A host token per
   person and turn. Never a Datalayer bearer token stored for a person.
 - **ai-agents to this service:** a signed push, verified with the
   installation's own delivery secret.

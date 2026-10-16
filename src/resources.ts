@@ -47,14 +47,17 @@ export function createRuntimeResources(
     required(config.DATABASE_URL, "DATABASE_URL"),
   );
   const cipher = new SecretCipher(
-    required(config.SLACK_TOKEN_ENCRYPTION_KEY, "SLACK_TOKEN_ENCRYPTION_KEY"),
-    config.SLACK_TOKEN_ENCRYPTION_KEY_VERSION,
-    "SLACK_TOKEN_ENCRYPTION_KEY",
+    required(
+      config.DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY,
+      "DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY",
+    ),
+    config.DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION,
+    "DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY",
   );
   return postgresResources(
     database,
     cipher,
-    required(config.SLACK_APP_ID, "SLACK_APP_ID"),
+    required(config.DATALAYER_SLACK_APP_ID, "DATALAYER_SLACK_APP_ID"),
     hostsOf,
   );
 }

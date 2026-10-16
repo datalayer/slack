@@ -65,11 +65,12 @@ describe("health and readiness (S-101)", () => {
     const app = createBoltApp(
       readConfig({
         NODE_ENV: "test",
-        SLACK_CLIENT_ID: "1.2",
-        SLACK_CLIENT_SECRET: "client-secret",
-        SLACK_REDIRECT_URI: "https://slack.example/slack/oauth/callback",
-        SLACK_SIGNING_SECRET: "signing-secret",
-        SLACK_STATE_SECRET: "s".repeat(32),
+        DATALAYER_SLACK_CLIENT_ID: "1.2",
+        DATALAYER_SLACK_CLIENT_SECRET: "client-secret",
+        DATALAYER_SLACK_REDIRECT_URI:
+          "https://slack.example/slack/oauth/callback",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+        DATALAYER_SLACK_STATE_SECRET: "s".repeat(32),
       }),
     );
     const receiver = (
@@ -180,14 +181,17 @@ describe("the guide, linked where people meet @Datalayer (S-108)", () => {
 
 describe("ingress and workers scaled apart (A-17)", () => {
   it("streams when available unless turned off, and keeps thread context off unless turned on", () => {
-    const config = readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "x" });
+    const config = readConfig({
+      NODE_ENV: "test",
+      DATALAYER_SLACK_SIGNING_SECRET: "x",
+    });
     expect(config.DATALAYER_SLACK_THREAD_CONTEXT).toBe(false);
     expect(config.DATALAYER_SLACK_STREAMING).toBe(true);
     expect(
       readConfig({
         DATALAYER_SLACK_STREAMING: "false",
         NODE_ENV: "test",
-        SLACK_SIGNING_SECRET: "x",
+        DATALAYER_SLACK_SIGNING_SECRET: "x",
       }).DATALAYER_SLACK_STREAMING,
     ).toBe(false);
     expect(config.DATALAYER_SLACK_EVENTS).toBe("quiet");
@@ -195,14 +199,14 @@ describe("ingress and workers scaled apart (A-17)", () => {
 
   it("defaults to one process doing both, and needs the durable store to split", () => {
     expect(
-      readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "x" })
+      readConfig({ NODE_ENV: "test", DATALAYER_SLACK_SIGNING_SECRET: "x" })
         .DATALAYER_SLACK_ROLE,
     ).toBe("all");
     expect(() =>
       readConfig({
         DATALAYER_SLACK_ROLE: "worker",
         NODE_ENV: "test",
-        SLACK_SIGNING_SECRET: "x",
+        DATALAYER_SLACK_SIGNING_SECRET: "x",
       }),
     ).toThrow(/durable queue/);
   });

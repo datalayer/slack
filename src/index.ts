@@ -101,8 +101,8 @@ async function main(): Promise<void> {
     ],
     installationStore: resources.installationStore,
     stateStore:
-      oauthConfigured(config) && config.SLACK_STATE_SECRET
-        ? new SignedStateStore(config.SLACK_STATE_SECRET, (nonce) =>
+      oauthConfigured(config) && config.DATALAYER_SLACK_STATE_SECRET
+        ? new SignedStateStore(config.DATALAYER_SLACK_STATE_SECRET, (nonce) =>
             store.claimEvent(nonce),
           )
         : undefined,
@@ -112,11 +112,11 @@ async function main(): Promise<void> {
   const installationStore = resources.installationStore;
   const tokens = new BotTokens(store, {
     refresh:
-      config.SLACK_CLIENT_ID && config.SLACK_CLIENT_SECRET
+      config.DATALAYER_SLACK_CLIENT_ID && config.DATALAYER_SLACK_CLIENT_SECRET
         ? slackTokenRefresh(
             app.client,
-            config.SLACK_CLIENT_ID,
-            config.SLACK_CLIENT_SECRET,
+            config.DATALAYER_SLACK_CLIENT_ID,
+            config.DATALAYER_SLACK_CLIENT_SECRET,
           )
         : undefined,
     rotated: installationStore

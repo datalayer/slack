@@ -73,7 +73,10 @@ function boltOf(store: MemorySlackStore) {
   });
   registerSlackListeners(
     app,
-    readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "signing-secret" }),
+    readConfig({
+      NODE_ENV: "test",
+      DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+    }),
     service,
     queue,
     { consume: false },

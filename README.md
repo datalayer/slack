@@ -149,14 +149,14 @@ This is how `Datalayer Dev` (`A0CAMVC1E1E`) was made on 16 October 2026, and how
    read -rsp "xoxb token: " B; echo; read -rsp "xapp token: " A; echo
    [ -n "$B" ] && [ -n "$A" ] && printf '\nexport DATALAYER_SLACK_DEVELOPMENT_BOT_TOKEN=%s\nexport DATALAYER_SLACK_DEVELOPMENT_APP_TOKEN=%s\n' "$B" "$A" >> ~/.datalayer/datalayerrc-prod1 && echo saved; unset A B
    ```
-7. **`.env` from the rc** (git-ignored, mode 600): `SLACK_APP_ID`, `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` from the `DATALAYER_SLACK_DEVELOPMENT_*` values; `SLACK_TEAM_ID` and `SLACK_BOT_USER_ID` from Slack's `auth.test` with the bot token; `DATALAYER_API_URL=https://r1.datalayer.run` (the host contracts run on r1); `DATALAYER_DEFAULT_APP_ID` the **deployment** uid of an application kept always on that does **not** sign its users (an application with D-21 user signing refuses development mode's key with 401); `DATALAYER_DEV_PRINCIPAL_ID` and `DATALAYER_DEV_SLACK_USER_ID` (your Datalayer uid and Slack member id).
+7. **`.env` from the rc** (git-ignored, mode 600): `DATALAYER_SLACK_APP_ID`, `DATALAYER_SLACK_SIGNING_SECRET`, `DATALAYER_SLACK_BOT_TOKEN`, `DATALAYER_SLACK_APP_TOKEN`, `DATALAYER_SLACK_CLIENT_ID`, `DATALAYER_SLACK_CLIENT_SECRET` from the `DATALAYER_SLACK_DEVELOPMENT_*` values; `DATALAYER_SLACK_TEAM_ID` and `DATALAYER_SLACK_BOT_USER_ID` from Slack's `auth.test` with the bot token; `DATALAYER_API_URL=https://r1.datalayer.run` (the host contracts run on r1); `DATALAYER_DEFAULT_APP_ID` the **deployment** uid of an application kept always on that does **not** sign its users (an application with D-21 user signing refuses development mode's key with 401); `DATALAYER_DEV_PRINCIPAL_ID` and `DATALAYER_DEV_SLACK_USER_ID` (your Datalayer uid and Slack member id).
 8. **Run it:** with `DATALAYER_API_KEY` exported for the account that owns that deployment, `make dev-socket`. In Slack: write to **Datalayer Dev** in a direct message, or `/invite @Datalayer Dev` to a channel and mention it in every message there (thread replies included; decided 16 October 2026). A refused turn is said to you privately with the reason (a spent daily limit, a user token missing).
 
 ### Staging and production (HTTP, on r1)
 
 1. **(you) The public address and DNS** for the environment's fixed origin (`slack-staging.datalayer.run`, `slack.datalayer.ai`; `scripts/manifest.ts`).
 2. **The chart's Secret and Postgres** already exist on r1 (`p reup datalayer-slack` creates `datalayer-slack-env` and `datalayer-slack-postgresql` even while the service is off).
-3. **Create the app and deploy its secrets:** `make slack-app ENV=staging SECRET=datalayer-api/datalayer-slack-env` (kubectl on r1). The signing and client secrets go to the Secret through stdin; `SLACK_APP_ID` and `SLACK_CLIENT_ID` to `~/.datalayer/datalayerrc-r1`.
+3. **Create the app and deploy its secrets:** `make slack-app ENV=staging SECRET=datalayer-api/datalayer-slack-env` (kubectl on r1). The signing and client secrets go to the Secret through stdin; `DATALAYER_SLACK_APP_ID` and `DATALAYER_SLACK_CLIENT_ID` to `~/.datalayer/datalayerrc-r1`.
 4. **(you) Turn the service on:** in `~/.datalayer/datalayerrc-r1`, `DATALAYER_SLACK_ENABLED=true` and `DATALAYER_SLACK_PUBLIC_URL=https://slack-staging.datalayer.run`; then `p reup datalayer-slack`. Slack checks the events URL once the service answers.
 5. **(you) Install it** to the workspace from the Studio: an application → **Ship** → **Slack** card → **Install to Slack**, which binds the installation to that application.
 6. Production: the same with `ENV=production`, after the security and privacy sign-off (S-003).
@@ -200,11 +200,11 @@ There is one Slack app per environment, each made from its manifest: `Datalayer 
    make slack-app ENV=staging SECRET=datalayer-api/datalayer-slack-env
    ```
 
-   Its signing and client secrets go through stdin to the Secret the chart created, and `SLACK_APP_ID` and `SLACK_CLIENT_ID` to `~/.datalayer/datalayerrc-r1`. Production is the same with `ENV=production`, once its host is served.
+   Its signing and client secrets go through stdin to the Secret the chart created, and `DATALAYER_SLACK_APP_ID` and `DATALAYER_SLACK_CLIENT_ID` to `~/.datalayer/datalayerrc-r1`. Production is the same with `ENV=production`, once its host is served.
 
 5. **Finish in the console what the manifest API cannot set** ([api.slack.com/apps](https://api.slack.com/apps) → the app):
    - **Basic Information → Display Information:** the app icon (512–2000 px square) and, for staging and production, the long description.
-   - **Development only, Socket Mode:** **Basic Information → App-Level Tokens → Generate Token and Scopes**, name `datalayer-local`, scope `connections:write`, and copy the `xapp-…` value into `.env` as `SLACK_APP_TOKEN`. Then **Install App → Install to Workspace**, approve the five scopes and copy the **Bot User OAuth Token** (`xoxb-…`) as `SLACK_BOT_TOKEN`. Continue at [Datalayer workspace setup](#datalayer-workspace-setup-socket-mode), step 4.
+   - **Development only, Socket Mode:** **Basic Information → App-Level Tokens → Generate Token and Scopes**, name `datalayer-local`, scope `connections:write`, and copy the `xapp-…` value into `.env` as `DATALAYER_SLACK_APP_TOKEN`. Then **Install App → Install to Workspace**, approve the five scopes and copy the **Bot User OAuth Token** (`xoxb-…`) as `DATALAYER_SLACK_BOT_TOKEN`. Continue at [Datalayer workspace setup](#datalayer-workspace-setup-socket-mode), step 4.
    - **Staging and production:** **Manage Distribution → Activate Public Distribution**, after Slack's checklist (HTTPS redirect URL, no hard-coded information) is green; without it only the app's own workspace can install. Do not install from the console: a workspace installs from the application's Ship tab in Datalayer, so it is bound at install.
 
 6. **Deploy and check (staging).** In `~/.datalayer/datalayerrc-r1`, set `DATALAYER_SLACK_ENABLED=true` and `DATALAYER_SLACK_PUBLIC_URL=https://slack-staging.datalayer.run` (the manifest's origin), then run `p reup datalayer-slack`. When `/readyz` answers 200, open the app's **Event Subscriptions** page: the Request URL must show _Verified_ (Slack sends its challenge when the address changes; press **Retry** if it was saved before the service ran). Then add @Datalayer from an application's Ship tab and follow [HTTP and OAuth development](#http-and-oauth-development), step 5, from _Then open @Datalayer's Home_.
@@ -250,9 +250,9 @@ The [`connections:write` scope](https://docs.slack.dev/reference/scopes/connecti
 
 ### 4. Collect the Slack identifiers
 
-- `SLACK_APP_ID`: **Settings → Basic Information → App Credentials → App ID**.
-- `SLACK_TEAM_ID`: the workspace ID returned by Slack's `auth.test` method.
-- `SLACK_BOT_USER_ID`: the `user_id` returned by the same call.
+- `DATALAYER_SLACK_APP_ID`: **Settings → Basic Information → App Credentials → App ID**.
+- `DATALAYER_SLACK_TEAM_ID`: the workspace ID returned by Slack's `auth.test` method.
+- `DATALAYER_SLACK_BOT_USER_ID`: the `user_id` returned by the same call.
 
 Put the bot token into `.env` temporarily, load it, and ask Slack for the two identifiers:
 
@@ -261,11 +261,11 @@ set -a
 . ./.env
 set +a
 curl --fail-with-body --silent --show-error \
-  -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+  -H "Authorization: Bearer ${DATALAYER_SLACK_BOT_TOKEN}" \
   https://slack.com/api/auth.test
 ```
 
-The response must contain `"ok":true`. Copy `team_id` to `SLACK_TEAM_ID` and `user_id` to `SLACK_BOT_USER_ID`. Do not paste the response into an issue or commit it.
+The response must contain `"ok":true`. Copy `team_id` to `DATALAYER_SLACK_TEAM_ID` and `user_id` to `DATALAYER_SLACK_BOT_USER_ID`. Do not paste the response into an issue or commit it.
 
 ### 5. Collect the Datalayer development values
 
@@ -311,11 +311,11 @@ DATALAYER_DEFAULT_APP_ID=your-deployed-application-id
 DATALAYER_DEV_PRINCIPAL_ID=your-datalayer-principal-id
 DATALAYER_DEV_SLACK_USER_ID=U0123456789
 
-SLACK_APP_ID=A0123456789
-SLACK_APP_TOKEN=xapp-...
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_BOT_USER_ID=U0123456789
-SLACK_TEAM_ID=T0123456789
+DATALAYER_SLACK_APP_ID=A0123456789
+DATALAYER_SLACK_APP_TOKEN=xapp-...
+DATALAYER_SLACK_BOT_TOKEN=xoxb-...
+DATALAYER_SLACK_BOT_USER_ID=U0123456789
+DATALAYER_SLACK_TEAM_ID=T0123456789
 ```
 
 Never commit `.env`, Slack tokens, Datalayer tokens, database passwords or encryption keys.
@@ -352,7 +352,7 @@ If the Datalayer host contract is available, the `_Working…_` placeholder is p
 
 ### 9. Bind the development app to r1 (its own host key)
 
-Development mode's key (`DATALAYER_DEV_HOST_TOKEN`) answers turns, but it binds nothing: no session is mapped, so approvals, finished turns and other deliveries never reach Slack, App Home cannot link a person, and the channel rules and handoffs have no installation to apply to. To try those with `Datalayer Dev` over Socket Mode, give it a real host installation on r1, as the Ship card does for a deployed workspace. You need your Datalayer API key, the uid of a deployment you own that is kept always on, and the `SLACK_APP_ID` and `SLACK_TEAM_ID` of your `.env`.
+Development mode's key (`DATALAYER_DEV_HOST_TOKEN`) answers turns, but it binds nothing: no session is mapped, so approvals, finished turns and other deliveries never reach Slack, App Home cannot link a person, and the channel rules and handoffs have no installation to apply to. To try those with `Datalayer Dev` over Socket Mode, give it a real host installation on r1, as the Ship card does for a deployed workspace. You need your Datalayer API key, the uid of a deployment you own that is kept always on, and the `DATALAYER_SLACK_APP_ID` and `DATALAYER_SLACK_TEAM_ID` of your `.env`.
 
 1. **Set up the installation** as the deployment's owner. The answer holds a one-use bind code, valid ten minutes; it is kept in a shell variable, never printed:
 
@@ -371,7 +371,7 @@ Development mode's key (`DATALAYER_DEV_HOST_TOKEN`) answers turns, but it binds 
    ```bash
    set -a; . ./.env; set +a
    KEY=$(curl --fail-with-body -sS -X POST "$API/bind" -H 'content-type: application/json' \
-     -d "{\"code\":\"$CODE\",\"external_id\":\"${SLACK_APP_ID}:-:${SLACK_TEAM_ID}\",\"name\":\"Datalayer Dev\"}" \
+     -d "{\"code\":\"$CODE\",\"external_id\":\"${DATALAYER_SLACK_APP_ID}:-:${DATALAYER_SLACK_TEAM_ID}\",\"name\":\"Datalayer Dev\"}" \
      | jq -r .host_key)
    test -n "$KEY" && [ "$KEY" != null ] && printf 'DATALAYER_HOST_KEY=%s\n' "$KEY" >> .env && echo "host key saved to .env"
    unset CODE KEY
@@ -448,7 +448,7 @@ openssl rand -base64 32
 openssl rand -hex 32
 ```
 
-Use the first as `SLACK_TOKEN_ENCRYPTION_KEY` and the second as `SLACK_STATE_SECRET`. Configure `.env`:
+Use the first as `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY` and the second as `DATALAYER_SLACK_STATE_SECRET`. Configure `.env`:
 
 ```dotenv
 NODE_ENV=development
@@ -457,20 +457,20 @@ DATALAYER_SLACK_TRANSPORT=http
 DATALAYER_SLACK_STORE=postgres
 DATABASE_URL=postgresql://postgres:datalayer-slack-local@127.0.0.1:5432/datalayer_slack
 
-SLACK_APP_ID=A0123456789
-SLACK_SIGNING_SECRET=...
-SLACK_CLIENT_ID=...
-SLACK_CLIENT_SECRET=...
-SLACK_STATE_SECRET=at-least-32-random-characters
-SLACK_REDIRECT_URI=https://example.ngrok-free.app/slack/oauth/callback
-SLACK_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
-SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
+DATALAYER_SLACK_APP_ID=A0123456789
+DATALAYER_SLACK_SIGNING_SECRET=...
+DATALAYER_SLACK_CLIENT_ID=...
+DATALAYER_SLACK_CLIENT_SECRET=...
+DATALAYER_SLACK_STATE_SECRET=at-least-32-random-characters
+DATALAYER_SLACK_REDIRECT_URI=https://example.ngrok-free.app/slack/oauth/callback
+DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
+DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
 
 DATALAYER_API_URL=https://your-datalayer-api.example
 DATALAYER_WEB_URL=https://datalayer.ai
 ```
 
-The static `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_TEAM_ID` and `SLACK_BOT_USER_ID` values are not used by the HTTP OAuth path.
+The static `DATALAYER_SLACK_BOT_TOKEN`, `DATALAYER_SLACK_APP_TOKEN`, `DATALAYER_SLACK_TEAM_ID` and `DATALAYER_SLACK_BOT_USER_ID` values are not used by the HTTP OAuth path.
 
 ### 5. Migrate, run and install
 
@@ -487,7 +487,7 @@ Then open @Datalayer's **Home** in Slack and choose _Connect your Datalayer acco
 
 Uninstalling the Slack app (or revoking its bot token) tells Datalayer (`DELETE …/hosts/self`), then deletes its OAuth credentials, host key and tenant bindings; late queued jobs and deliveries then fail closed.
 
-Datalayer pushes approvals and finished turns to `<origin>/datalayer/deliveries/<host uid>` (origin: `DATALAYER_SLACK_PUBLIC_URL`, else that of `SLACK_REDIRECT_URI`); the outbox is also read every `DATALAYER_DELIVERY_POLL_SECONDS` (30), so a missed push still arrives.
+Datalayer pushes approvals and finished turns to `<origin>/datalayer/deliveries/<host uid>` (origin: `DATALAYER_SLACK_PUBLIC_URL`, else that of `DATALAYER_SLACK_REDIRECT_URI`); the outbox is also read every `DATALAYER_DELIVERY_POLL_SECONDS` (30), so a missed push still arrives.
 
 ## Production checklist
 
@@ -495,8 +495,8 @@ Do not deploy the development shortcut. A production process must set:
 
 - `NODE_ENV=production`, `DATALAYER_SLACK_TRANSPORT=http` and `DATALAYER_SLACK_STORE=postgres`;
 - `DATABASE_URL` for a backed-up, TLS-protected PostgreSQL database;
-- `SLACK_APP_ID`, `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_STATE_SECRET` and the exact `SLACK_REDIRECT_URI`;
-- `SLACK_TOKEN_ENCRYPTION_KEY` from a secret manager and its explicit key version;
+- `DATALAYER_SLACK_APP_ID`, `DATALAYER_SLACK_SIGNING_SECRET`, `DATALAYER_SLACK_CLIENT_ID`, `DATALAYER_SLACK_CLIENT_SECRET`, `DATALAYER_SLACK_STATE_SECRET` and the exact `DATALAYER_SLACK_REDIRECT_URI`;
+- `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY` from a secret manager and its explicit key version;
 - production `DATALAYER_API_URL` and `DATALAYER_WEB_URL` values;
 - the URLs from [`manifests/production.yaml`](manifests/production.yaml), reachable over HTTPS.
 
@@ -504,46 +504,46 @@ Run `npm run migrate` once per release before starting `npm run build && npm sta
 
 ## Configuration reference
 
-| Variable                                  | Required when                    | Purpose                                                      |
-| ----------------------------------------- | -------------------------------- | ------------------------------------------------------------ |
-| `PORT`                                    | Always; defaults to `3000`       | Bolt HTTP listener or local Socket Mode process port         |
-| `DATALAYER_SLACK_TRANSPORT`               | Always                           | `socket` locally or `http` for public ingress                |
-| `DATALAYER_SLACK_STORE`                   | Always                           | `memory` for local work or `postgres` for durable/OAuth work |
-| `DATABASE_URL`                            | PostgreSQL store                 | PostgreSQL connection string                                 |
-| `SLACK_TOKEN_ENCRYPTION_KEY`              | PostgreSQL store                 | Base64-encoded 32-byte AES key                               |
-| `SLACK_TOKEN_ENCRYPTION_KEY_VERSION`      | PostgreSQL store                 | Positive key version; defaults to `1`                        |
-| `SLACK_APP_TOKEN`                         | Socket Mode                      | App-level `xapp-` token with `connections:write`             |
-| `SLACK_BOT_TOKEN`                         | Static development install       | Workspace bot `xoxb-` token                                  |
-| `SLACK_APP_ID`                            | Seeded development or PostgreSQL | Slack application ID                                         |
-| `SLACK_TEAM_ID` / `SLACK_BOT_USER_ID`     | Seeded Socket Mode development   | Workspace and installed bot user identifiers                 |
-| `SLACK_SIGNING_SECRET`                    | HTTP                             | Verifies signed Slack requests                               |
-| `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` | OAuth; required in production    | Slack OAuth application credentials                          |
-| `SLACK_STATE_SECRET`                      | OAuth; required in production    | At least 32 characters for OAuth state signing               |
-| `SLACK_REDIRECT_URI`                      | OAuth; required in production    | Exact public OAuth callback URL                              |
-| `DATALAYER_API_URL`                       | Always                           | Datalayer host-contract origin                               |
-| `DATALAYER_WEB_URL`                       | Always                           | Base URL used for docs and session links                     |
-| `DATALAYER_DEFAULT_APP_ID`                | Seeded development               | Deployment uid selected for prompts                          |
-| `DATALAYER_HOST_KEY`                      | Development only                 | One host key for workspaces installed without OAuth          |
-| `DATALAYER_SLACK_PUBLIC_URL`              | Optional                         | Public HTTPS origin Datalayer pushes deliveries to           |
-| `DATALAYER_DELIVERY_POLL_SECONDS`         | Optional; defaults to `30`       | How often the outbox is read; `0` never                      |
-| `DATALAYER_DEV_*`                         | Socket Mode development only     | Temporary principal/link/token bootstrap                     |
+| Variable                                                      | Required when                    | Purpose                                                      |
+| ------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------ |
+| `PORT`                                                        | Always; defaults to `3000`       | Bolt HTTP listener or local Socket Mode process port         |
+| `DATALAYER_SLACK_TRANSPORT`                                   | Always                           | `socket` locally or `http` for public ingress                |
+| `DATALAYER_SLACK_STORE`                                       | Always                           | `memory` for local work or `postgres` for durable/OAuth work |
+| `DATABASE_URL`                                                | PostgreSQL store                 | PostgreSQL connection string                                 |
+| `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY`                        | PostgreSQL store                 | Base64-encoded 32-byte AES key                               |
+| `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION`                | PostgreSQL store                 | Positive key version; defaults to `1`                        |
+| `DATALAYER_SLACK_APP_TOKEN`                                   | Socket Mode                      | App-level `xapp-` token with `connections:write`             |
+| `DATALAYER_SLACK_BOT_TOKEN`                                   | Static development install       | Workspace bot `xoxb-` token                                  |
+| `DATALAYER_SLACK_APP_ID`                                      | Seeded development or PostgreSQL | Slack application ID                                         |
+| `DATALAYER_SLACK_TEAM_ID` / `DATALAYER_SLACK_BOT_USER_ID`     | Seeded Socket Mode development   | Workspace and installed bot user identifiers                 |
+| `DATALAYER_SLACK_SIGNING_SECRET`                              | HTTP                             | Verifies signed Slack requests                               |
+| `DATALAYER_SLACK_CLIENT_ID` / `DATALAYER_SLACK_CLIENT_SECRET` | OAuth; required in production    | Slack OAuth application credentials                          |
+| `DATALAYER_SLACK_STATE_SECRET`                                | OAuth; required in production    | At least 32 characters for OAuth state signing               |
+| `DATALAYER_SLACK_REDIRECT_URI`                                | OAuth; required in production    | Exact public OAuth callback URL                              |
+| `DATALAYER_API_URL`                                           | Always                           | Datalayer host-contract origin                               |
+| `DATALAYER_WEB_URL`                                           | Always                           | Base URL used for docs and session links                     |
+| `DATALAYER_DEFAULT_APP_ID`                                    | Seeded development               | Deployment uid selected for prompts                          |
+| `DATALAYER_HOST_KEY`                                          | Development only                 | One host key for workspaces installed without OAuth          |
+| `DATALAYER_SLACK_PUBLIC_URL`                                  | Optional                         | Public HTTPS origin Datalayer pushes deliveries to           |
+| `DATALAYER_DELIVERY_POLL_SECONDS`                             | Optional; defaults to `30`       | How often the outbox is read; `0` never                      |
+| `DATALAYER_DEV_*`                                             | Socket Mode development only     | Temporary principal/link/token bootstrap                     |
 
 ## Troubleshooting
 
-| Symptom                                   | Check                                                                                                                                                                                                                                                     |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SLACK_APP_TOKEN` configuration error     | Socket Mode needs an `xapp-` token with `connections:write`.                                                                                                                                                                                              |
-| `not_authed` or `invalid_auth` from Slack | Recopy the correct bot/app token. If rotation was enabled, the static token may have expired; use OAuth or recreate the development app.                                                                                                                  |
-| App does not receive events               | Confirm Socket Mode is enabled for the socket path, or that Slack verifies the exact `/slack/events` HTTPS URL for HTTP.                                                                                                                                  |
-| App cannot post in a channel              | Invite `@Datalayer` to that channel; the manifest deliberately omits `chat:write.public`.                                                                                                                                                                 |
-| App Home says **Not connected**           | Choose _Connect your Datalayer account_ and confirm on Datalayer's page. Without that button the workspace was installed without the Ship card's code: install again from the Ship tab. In Socket Mode development, verify `DATALAYER_DEV_SLACK_USER_ID`. |
-| The install page refuses                  | Start from the application's Ship tab: its code is good for ten minutes and works once.                                                                                                                                                                   |
-| No approval card arrives                  | The deployment must be kept always on; check that `<origin>/datalayer/deliveries/<host>` is reachable over HTTPS, or wait for the outbox poll.                                                                                                            |
-| App Home says no default application      | Set `DATALAYER_DEFAULT_APP_ID` and restart.                                                                                                                                                                                                               |
-| `_Working…_` never becomes an answer      | Inspect the terminal. Confirm the host key or development token, the deployment uid, that it is kept always on and that its runtime is on the `DATALAYER_API_URL` origin.                                                                                 |
-| HTTP requests are rejected                | Confirm the tunnel URL, `SLACK_SIGNING_SECRET`, system clock and Slack Request URLs.                                                                                                                                                                      |
-| OAuth callback fails                      | The Slack redirect URL and `SLACK_REDIRECT_URI` must match exactly, including path and HTTPS origin.                                                                                                                                                      |
-| PostgreSQL startup fails                  | Check `DATABASE_URL`, run `npm run migrate`, and verify the database is reachable.                                                                                                                                                                        |
+| Symptom                                         | Check                                                                                                                                                                                                                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATALAYER_SLACK_APP_TOKEN` configuration error | Socket Mode needs an `xapp-` token with `connections:write`.                                                                                                                                                                                              |
+| `not_authed` or `invalid_auth` from Slack       | Recopy the correct bot/app token. If rotation was enabled, the static token may have expired; use OAuth or recreate the development app.                                                                                                                  |
+| App does not receive events                     | Confirm Socket Mode is enabled for the socket path, or that Slack verifies the exact `/slack/events` HTTPS URL for HTTP.                                                                                                                                  |
+| App cannot post in a channel                    | Invite `@Datalayer` to that channel; the manifest deliberately omits `chat:write.public`.                                                                                                                                                                 |
+| App Home says **Not connected**                 | Choose _Connect your Datalayer account_ and confirm on Datalayer's page. Without that button the workspace was installed without the Ship card's code: install again from the Ship tab. In Socket Mode development, verify `DATALAYER_DEV_SLACK_USER_ID`. |
+| The install page refuses                        | Start from the application's Ship tab: its code is good for ten minutes and works once.                                                                                                                                                                   |
+| No approval card arrives                        | The deployment must be kept always on; check that `<origin>/datalayer/deliveries/<host>` is reachable over HTTPS, or wait for the outbox poll.                                                                                                            |
+| App Home says no default application            | Set `DATALAYER_DEFAULT_APP_ID` and restart.                                                                                                                                                                                                               |
+| `_Working…_` never becomes an answer            | Inspect the terminal. Confirm the host key or development token, the deployment uid, that it is kept always on and that its runtime is on the `DATALAYER_API_URL` origin.                                                                                 |
+| HTTP requests are rejected                      | Confirm the tunnel URL, `DATALAYER_SLACK_SIGNING_SECRET`, system clock and Slack Request URLs.                                                                                                                                                            |
+| OAuth callback fails                            | The Slack redirect URL and `DATALAYER_SLACK_REDIRECT_URI` must match exactly, including path and HTTPS origin.                                                                                                                                            |
+| PostgreSQL startup fails                        | Check `DATABASE_URL`, run `npm run migrate`, and verify the database is reachable.                                                                                                                                                                        |
 
 ## Durable storage internals
 
@@ -552,12 +552,12 @@ Production uses PostgreSQL for installations, linked identities, application def
 ```text
 DATALAYER_SLACK_STORE=postgres
 DATABASE_URL=postgresql://...
-SLACK_APP_ID=A…
-SLACK_TOKEN_ENCRYPTION_KEY=<base64-encoded 32-byte key>
-SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
+DATALAYER_SLACK_APP_ID=A…
+DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY=<base64-encoded 32-byte key>
+DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
 ```
 
-Staging and production manifests turn on token rotation: Slack's bot token then lives twelve hours. The worker refreshes it before any post when it expires within two hours (`src/bot-tokens.ts`, with `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`), so answers, deliveries and approval cards keep working after a quiet spell with no inbound event. The refresh token is kept encrypted beside the bot token (migration `005`).
+Staging and production manifests turn on token rotation: Slack's bot token then lives twelve hours. The worker refreshes it before any post when it expires within two hours (`src/bot-tokens.ts`, with `DATALAYER_SLACK_CLIENT_ID` and `DATALAYER_SLACK_CLIENT_SECRET`), so answers, deliveries and approval cards keep working after a quiet spell with no inbound event. The refresh token is kept encrypted beside the bot token (migration `005`).
 
 Create a key with `openssl rand -base64 32` and keep it in the platform secret manager. The key version is stored with every ciphertext so rotation can be introduced without ambiguous decryptions. Slack tokens are encrypted with AES-256-GCM and bound to their installation key as authenticated data.
 

@@ -21,7 +21,7 @@ import {
  * DATALAYER_SLACK_<ENV>_*. With --k8s-secret, the app the service on r1
  * runs as (just created, or saved in the rc earlier) is deployed: its signing
  * and client secrets go to the Secret the chart created, and its two
- * non-secret ids to the r1 rc as SLACK_APP_ID and SLACK_CLIENT_ID, which
+ * non-secret ids to the r1 rc as DATALAYER_SLACK_APP_ID and DATALAYER_SLACK_CLIENT_ID, which
  * up.sh's datalayer_slack passes to the chart. Nothing secret is printed.
  */
 
@@ -172,10 +172,10 @@ export function deployEntries(
     );
   return {
     secret: {
-      SLACK_SIGNING_SECRET: signingSecret,
-      SLACK_CLIENT_SECRET: clientSecret,
+      DATALAYER_SLACK_SIGNING_SECRET: signingSecret,
+      DATALAYER_SLACK_CLIENT_SECRET: clientSecret,
     },
-    ids: { SLACK_APP_ID: appId, SLACK_CLIENT_ID: clientId },
+    ids: { DATALAYER_SLACK_APP_ID: appId, DATALAYER_SLACK_CLIENT_ID: clientId },
   };
 }
 
@@ -344,7 +344,7 @@ async function main(argv: string[]): Promise<void> {
       withExports(await readFile(deployRcPath, "utf8"), deploy.ids),
     );
     console.log(
-      `SLACK_APP_ID and SLACK_CLIENT_ID of ${outcome.appId} saved to ${deployRcPath}.`,
+      `DATALAYER_SLACK_APP_ID and DATALAYER_SLACK_CLIENT_ID of ${outcome.appId} saved to ${deployRcPath}.`,
     );
   }
 }

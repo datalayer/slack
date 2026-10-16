@@ -149,7 +149,9 @@ describe("Bot token rotation (S-102)", () => {
     await installed(unconfigured);
     await expect(
       new BotTokens(unconfigured, { now: time.now }).token(KEY),
-    ).rejects.toThrow(/SLACK_CLIENT_ID and SLACK_CLIENT_SECRET/);
+    ).rejects.toThrow(
+      /DATALAYER_SLACK_CLIENT_ID and DATALAYER_SLACK_CLIENT_SECRET/,
+    );
 
     const failing = new MemorySlackStore();
     await installed(failing);

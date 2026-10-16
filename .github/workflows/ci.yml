@@ -22,7 +22,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      SLACK_TEST_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/slack
+      DATALAYER_SLACK_TEST_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/slack
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,9 +87,9 @@ jobs:
           test "$(docker run --rm --entrypoint id datalayer-slack:ci -u)" != "0"
           docker run -d --name slack -p 3000:3000 \
             -e NODE_ENV=test -e DATALAYER_SLACK_TRANSPORT=http -e DATALAYER_DELIVERY_POLL_SECONDS=0 \
-            -e SLACK_SIGNING_SECRET=ci-only-signing-secret -e SLACK_CLIENT_ID=1.2 -e SLACK_CLIENT_SECRET=ci-only \
-            -e SLACK_STATE_SECRET=ci-only-state-secret-0123456789abcdef \
-            -e SLACK_REDIRECT_URI=https://slack.example/slack/oauth/callback \
+            -e DATALAYER_SLACK_SIGNING_SECRET=ci-only-signing-secret -e DATALAYER_SLACK_CLIENT_ID=1.2 -e DATALAYER_SLACK_CLIENT_SECRET=ci-only \
+            -e DATALAYER_SLACK_STATE_SECRET=ci-only-state-secret-0123456789abcdef \
+            -e DATALAYER_SLACK_REDIRECT_URI=https://slack.example/slack/oauth/callback \
             datalayer-slack:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/healthz; then curl -fsS http://127.0.0.1:3000/readyz; exit $?; fi

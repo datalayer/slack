@@ -245,11 +245,12 @@ describe("every other Slack call waits out a 429 (S-206)", () => {
     const app = createBoltApp(
       readConfig({
         NODE_ENV: "test",
-        SLACK_CLIENT_ID: "1.2",
-        SLACK_CLIENT_SECRET: "client-secret",
-        SLACK_REDIRECT_URI: "https://slack.example/slack/oauth/callback",
-        SLACK_SIGNING_SECRET: "signing-secret",
-        SLACK_STATE_SECRET: "s".repeat(32),
+        DATALAYER_SLACK_CLIENT_ID: "1.2",
+        DATALAYER_SLACK_CLIENT_SECRET: "client-secret",
+        DATALAYER_SLACK_REDIRECT_URI:
+          "https://slack.example/slack/oauth/callback",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+        DATALAYER_SLACK_STATE_SECRET: "s".repeat(32),
       }),
     );
     const client = app.client as unknown as { rejectRateLimitedCalls: boolean };

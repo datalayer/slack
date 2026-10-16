@@ -121,7 +121,7 @@ describe("quotas before costly work (S-404)", () => {
   });
 });
 
-const DATABASE_URL = process.env.SLACK_TEST_DATABASE_URL;
+const DATABASE_URL = process.env.DATALAYER_SLACK_TEST_DATABASE_URL;
 
 describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
   let database: Pool;

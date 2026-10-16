@@ -70,7 +70,10 @@ async function started() {
     signingSecret: SECRET,
   });
   guardRequestTimestamps(app, [SLACK_EVENTS_PATH]);
-  const config = readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: SECRET });
+  const config = readConfig({
+    NODE_ENV: "test",
+    DATALAYER_SLACK_SIGNING_SECRET: SECRET,
+  });
   const store = await installedStore({ defaultApplication: "dep-1" });
   const service = new SlackAgentService(
     store,

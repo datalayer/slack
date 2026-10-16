@@ -174,7 +174,10 @@ describe("Stop while an answer streams: the busy notice (S-206)", () => {
     });
     registerSlackListeners(
       app,
-      readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "signing-secret" }),
+      readConfig({
+        NODE_ENV: "test",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+      }),
       service,
       new KeptQueue(),
       { consume: false },

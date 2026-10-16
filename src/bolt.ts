@@ -245,10 +245,10 @@ export type BoltAppOptions = Readonly<{
 
 export function oauthConfigured(config: Config): boolean {
   return Boolean(
-    config.SLACK_CLIENT_ID &&
-      config.SLACK_CLIENT_SECRET &&
-      config.SLACK_STATE_SECRET &&
-      config.SLACK_REDIRECT_URI,
+    config.DATALAYER_SLACK_CLIENT_ID &&
+      config.DATALAYER_SLACK_CLIENT_SECRET &&
+      config.DATALAYER_SLACK_STATE_SECRET &&
+      config.DATALAYER_SLACK_REDIRECT_URI,
   );
 }
 
@@ -269,13 +269,13 @@ function boltApp(config: Config, options: BoltAppOptions): App {
   const oauth = oauthConfigured(config);
   const stateStore = options.stateStore;
   return new App({
-    appToken: config.SLACK_APP_TOKEN,
+    appToken: config.DATALAYER_SLACK_APP_TOKEN,
     // A 429 is rejected to the caller, whose limiter waits Slack's
     // Retry-After (rate-limit.ts), rather than absorbed by the client
     // pausing its whole queue (S-206).
     clientOptions: { rejectRateLimitedCalls: true },
-    clientId: oauth ? config.SLACK_CLIENT_ID : undefined,
-    clientSecret: oauth ? config.SLACK_CLIENT_SECRET : undefined,
+    clientId: oauth ? config.DATALAYER_SLACK_CLIENT_ID : undefined,
+    clientSecret: oauth ? config.DATALAYER_SLACK_CLIENT_SECRET : undefined,
     customRoutes: options.customRoutes,
     installationStore: oauth
       ? (options.installationStore ?? new MemoryInstallationStore())
@@ -285,7 +285,7 @@ function boltApp(config: Config, options: BoltAppOptions): App {
           directInstall: true,
           installPath: "/slack/install",
           redirectUriPath: new URL(
-            config.SLACK_REDIRECT_URI ??
+            config.DATALAYER_SLACK_REDIRECT_URI ??
               "https://invalid.local/slack/oauth/callback",
           ).pathname,
           stateStore,
@@ -295,8 +295,8 @@ function boltApp(config: Config, options: BoltAppOptions): App {
                 // never in an option shared with another request.
                 beforeRedirection: async (request, response) =>
                   startBoundInstall(request, response, {
-                    clientId: config.SLACK_CLIENT_ID ?? "",
-                    redirectUri: config.SLACK_REDIRECT_URI,
+                    clientId: config.DATALAYER_SLACK_CLIENT_ID ?? "",
+                    redirectUri: config.DATALAYER_SLACK_REDIRECT_URI,
                     requireBind: config.NODE_ENV !== "development",
                     scopes: BOT_SCOPES,
                     stateStore,
@@ -336,13 +336,15 @@ function boltApp(config: Config, options: BoltAppOptions): App {
     // Over HTTP, an event is acknowledged once its listener persisted it
     // (4–5); listeners never call Slack or Datalayer.
     processBeforeResponse: config.DATALAYER_SLACK_TRANSPORT === "http",
-    redirectUri: oauth ? config.SLACK_REDIRECT_URI : undefined,
+    redirectUri: oauth ? config.DATALAYER_SLACK_REDIRECT_URI : undefined,
     signingSecret:
-      config.SLACK_SIGNING_SECRET ?? "socket-mode-does-not-use-this-secret",
+      config.DATALAYER_SLACK_SIGNING_SECRET ??
+      "socket-mode-does-not-use-this-secret",
     scopes: oauth ? BOT_SCOPES : undefined,
     socketMode: config.DATALAYER_SLACK_TRANSPORT === "socket",
-    stateSecret: oauth && !stateStore ? config.SLACK_STATE_SECRET : undefined,
-    token: oauth ? undefined : config.SLACK_BOT_TOKEN,
+    stateSecret:
+      oauth && !stateStore ? config.DATALAYER_SLACK_STATE_SECRET : undefined,
+    token: oauth ? undefined : config.DATALAYER_SLACK_BOT_TOKEN,
   });
 }
 
@@ -402,7 +404,7 @@ export function registerSlackListeners(
   // Events: normalized without a network call, persisted once by their
   // event id, then acknowledged (processBeforeResponse for HTTP).
   const enqueueEvent = async (body: EventEnvelope, logger: Logger) => {
-    const ingress = ingressOf(body, config.SLACK_BOT_USER_ID);
+    const ingress = ingressOf(body, config.DATALAYER_SLACK_BOT_USER_ID);
     const key = body.event_id;
     if (!key) return;
     try {
@@ -808,21 +810,21 @@ export async function seedDevelopmentInstallation(
 ): Promise<void> {
   if (
     config.NODE_ENV !== "development" ||
-    !config.SLACK_APP_ID ||
-    !config.SLACK_TEAM_ID ||
-    !config.SLACK_BOT_TOKEN ||
-    !config.SLACK_BOT_USER_ID
+    !config.DATALAYER_SLACK_APP_ID ||
+    !config.DATALAYER_SLACK_TEAM_ID ||
+    !config.DATALAYER_SLACK_BOT_TOKEN ||
+    !config.DATALAYER_SLACK_BOT_USER_ID
   ) {
     return;
   }
   const key: SlackInstallationKey = {
-    appId: config.SLACK_APP_ID,
-    teamId: config.SLACK_TEAM_ID,
+    appId: config.DATALAYER_SLACK_APP_ID,
+    teamId: config.DATALAYER_SLACK_TEAM_ID,
   };
   await store.putInstallation({
     ...key,
-    botToken: config.SLACK_BOT_TOKEN,
-    botUserId: config.SLACK_BOT_USER_ID,
+    botToken: config.DATALAYER_SLACK_BOT_TOKEN,
+    botUserId: config.DATALAYER_SLACK_BOT_USER_ID,
     installedBy: "development",
     scopes: ["app_mentions:read", "chat:write", "im:history"],
     status: "active",

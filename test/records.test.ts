@@ -20,10 +20,10 @@ import { testDatabase } from "./support/postgres.js";
 
 /**
  * The Slack-side records (S-004), on the memory store always and on
- * Postgres when `SLACK_TEST_DATABASE_URL` names a throwaway database:
+ * Postgres when `DATALAYER_SLACK_TEST_DATABASE_URL` names a throwaway database:
  * every migration applied, then the same cases.
  */
-const DATABASE_URL = process.env.SLACK_TEST_DATABASE_URL;
+const DATABASE_URL = process.env.DATALAYER_SLACK_TEST_DATABASE_URL;
 
 const key = { appId: "A1", teamId: "T1" } as const;
 const thread: ThreadKey = { ...key, channelId: "C1", threadTs: "1.0" };

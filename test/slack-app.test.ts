@@ -213,8 +213,11 @@ describe("deploying an app to the chart", () => {
 
   it("takes a created app's secrets for the Secret and its ids for the r1 rc", () => {
     expect(deployEntries("staging", "", "A9", credentials)).toEqual({
-      secret: { SLACK_SIGNING_SECRET: "ss", SLACK_CLIENT_SECRET: "cs" },
-      ids: { SLACK_APP_ID: "A9", SLACK_CLIENT_ID: "1.2" },
+      secret: {
+        DATALAYER_SLACK_SIGNING_SECRET: "ss",
+        DATALAYER_SLACK_CLIENT_SECRET: "cs",
+      },
+      ids: { DATALAYER_SLACK_APP_ID: "A9", DATALAYER_SLACK_CLIENT_ID: "1.2" },
     });
   });
 

@@ -6,13 +6,13 @@ describe("configuration", () => {
   it("requires a Socket Mode app token", () => {
     expect(() =>
       readConfig({ NODE_ENV: "test", DATALAYER_SLACK_TRANSPORT: "socket" }),
-    ).toThrow(/SLACK_APP_TOKEN/);
+    ).toThrow(/DATALAYER_SLACK_APP_TOKEN/);
   });
 
   it("requires a signing secret for HTTP", () => {
     expect(() =>
       readConfig({ NODE_ENV: "test", DATALAYER_SLACK_TRANSPORT: "http" }),
-    ).toThrow(/SLACK_SIGNING_SECRET/);
+    ).toThrow(/DATALAYER_SLACK_SIGNING_SECRET/);
   });
 
   it("refuses development credentials and memory storage in production", () => {
@@ -22,7 +22,7 @@ describe("configuration", () => {
         DATALAYER_DEV_HOST_TOKEN: "secret",
         DATALAYER_SLACK_STORE: "memory",
         DATALAYER_SLACK_TRANSPORT: "http",
-        SLACK_SIGNING_SECRET: "signing-secret",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
       }),
     ).toThrow(/durable installation|development host token/);
   });
@@ -33,9 +33,9 @@ describe("configuration", () => {
         DATALAYER_SLACK_STORE: "postgres",
         DATALAYER_SLACK_TRANSPORT: "http",
         NODE_ENV: "test",
-        SLACK_SIGNING_SECRET: "signing-secret",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
       }),
-    ).toThrow(/DATABASE_URL|SLACK_TOKEN_ENCRYPTION_KEY/);
+    ).toThrow(/DATABASE_URL|DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY/);
   });
 
   it("keeps one host key for every workspace to development", () => {
@@ -44,7 +44,7 @@ describe("configuration", () => {
         DATALAYER_HOST_KEY: "dlhk_shared",
         DATALAYER_SLACK_TRANSPORT: "http",
         NODE_ENV: "test",
-        SLACK_SIGNING_SECRET: "signing-secret",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
       }),
     ).toThrow(/development shortcut/);
     expect(
@@ -52,7 +52,7 @@ describe("configuration", () => {
         DATALAYER_HOST_KEY: "dlhk_shared",
         DATALAYER_SLACK_TRANSPORT: "http",
         NODE_ENV: "development",
-        SLACK_SIGNING_SECRET: "signing-secret",
+        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
       }).DATALAYER_HOST_KEY,
     ).toBe("dlhk_shared");
   });
@@ -61,7 +61,8 @@ describe("configuration", () => {
     expect(
       deliveryUrlOf(
         {
-          SLACK_REDIRECT_URI: "https://slack.datalayer.ai/slack/oauth/callback",
+          DATALAYER_SLACK_REDIRECT_URI:
+            "https://slack.datalayer.ai/slack/oauth/callback",
         },
         "inst-1",
       ),
@@ -70,13 +71,17 @@ describe("configuration", () => {
       deliveryUrlOf(
         {
           DATALAYER_SLACK_PUBLIC_URL: "https://hooks.example",
-          SLACK_REDIRECT_URI: "https://slack.datalayer.ai/slack/oauth/callback",
+          DATALAYER_SLACK_REDIRECT_URI:
+            "https://slack.datalayer.ai/slack/oauth/callback",
         },
         "inst-1",
       ),
     ).toBe("https://hooks.example/datalayer/deliveries/inst-1");
     expect(
-      deliveryUrlOf({ SLACK_REDIRECT_URI: "http://localhost:3000/x" }, "i"),
+      deliveryUrlOf(
+        { DATALAYER_SLACK_REDIRECT_URI: "http://localhost:3000/x" },
+        "i",
+      ),
     ).toBeUndefined();
     expect(deliveryUrlOf({}, "i")).toBeUndefined();
   });

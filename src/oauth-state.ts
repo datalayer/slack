@@ -20,7 +20,7 @@ const decode = (value: string): string =>
   Buffer.from(value, "base64url").toString("utf8");
 
 /**
- * Slack OAuth `state`, signed (HMAC-SHA256 with `SLACK_STATE_SECRET`),
+ * Slack OAuth `state`, signed (HMAC-SHA256 with `DATALAYER_SLACK_STATE_SECRET`),
  * expiring after ten minutes and spent once (single-use OAuth state).
  * It carries the install options — among them the Datalayer bind code as
  * `metadata`, which Slack's library hands back on the installation at the

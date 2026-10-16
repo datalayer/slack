@@ -19,8 +19,8 @@ const schema = z
      */
     DATALAYER_SLACK_ROLE: z.enum(["all", "ingress", "worker"]).default("all"),
     DATABASE_URL: optionalSecret,
-    SLACK_TOKEN_ENCRYPTION_KEY: optionalSecret,
-    SLACK_TOKEN_ENCRYPTION_KEY_VERSION: z.coerce
+    DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY: optionalSecret,
+    DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION: z.coerce
       .number()
       .int()
       .positive()
@@ -38,7 +38,7 @@ const schema = z
     /**
      * This service's public HTTPS origin, where Datalayer pushes each
      * installation's deliveries (`/datalayer/deliveries/{host}`); by default
-     * the origin of `SLACK_REDIRECT_URI`. Without one, the outbox is read.
+     * the origin of `DATALAYER_SLACK_REDIRECT_URI`. Without one, the outbox is read.
      */
     DATALAYER_SLACK_PUBLIC_URL: z.url().optional(),
     /** How often the outbox is read, in seconds; 0 reads it never. */
@@ -86,16 +86,16 @@ const schema = z
     DATALAYER_SLACK_EVENTS: z.enum(["quiet", "noisy"]).default("quiet"),
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,
     DATALAYER_DEV_SLACK_USER_ID: optionalSecret,
-    SLACK_APP_ID: optionalSecret,
-    SLACK_SIGNING_SECRET: optionalSecret,
-    SLACK_BOT_TOKEN: optionalSecret,
-    SLACK_BOT_USER_ID: optionalSecret,
-    SLACK_TEAM_ID: optionalSecret,
-    SLACK_APP_TOKEN: optionalSecret,
-    SLACK_CLIENT_ID: optionalSecret,
-    SLACK_CLIENT_SECRET: optionalSecret,
-    SLACK_STATE_SECRET: optionalSecret,
-    SLACK_REDIRECT_URI: z.url().optional(),
+    DATALAYER_SLACK_APP_ID: optionalSecret,
+    DATALAYER_SLACK_SIGNING_SECRET: optionalSecret,
+    DATALAYER_SLACK_BOT_TOKEN: optionalSecret,
+    DATALAYER_SLACK_BOT_USER_ID: optionalSecret,
+    DATALAYER_SLACK_TEAM_ID: optionalSecret,
+    DATALAYER_SLACK_APP_TOKEN: optionalSecret,
+    DATALAYER_SLACK_CLIENT_ID: optionalSecret,
+    DATALAYER_SLACK_CLIENT_SECRET: optionalSecret,
+    DATALAYER_SLACK_STATE_SECRET: optionalSecret,
+    DATALAYER_SLACK_REDIRECT_URI: z.url().optional(),
   })
   .superRefine((value, context) => {
     if (
@@ -109,11 +109,15 @@ const schema = z
           "Production requires a durable installation, binding, and idempotency store.",
       });
     }
-    if (value.SLACK_STATE_SECRET && value.SLACK_STATE_SECRET.length < 32) {
+    if (
+      value.DATALAYER_SLACK_STATE_SECRET &&
+      value.DATALAYER_SLACK_STATE_SECRET.length < 32
+    ) {
       context.addIssue({
         code: "custom",
-        path: ["SLACK_STATE_SECRET"],
-        message: "SLACK_STATE_SECRET must contain at least 32 characters.",
+        path: ["DATALAYER_SLACK_STATE_SECRET"],
+        message:
+          "DATALAYER_SLACK_STATE_SECRET must contain at least 32 characters.",
       });
     }
     if (value.NODE_ENV === "production" && value.DATALAYER_DEV_HOST_TOKEN) {
@@ -150,54 +154,58 @@ const schema = z
         message: "PostgreSQL storage requires DATABASE_URL.",
       });
     }
-    if (value.DATALAYER_SLACK_STORE === "postgres" && !value.SLACK_APP_ID) {
+    if (
+      value.DATALAYER_SLACK_STORE === "postgres" &&
+      !value.DATALAYER_SLACK_APP_ID
+    ) {
       context.addIssue({
         code: "custom",
-        path: ["SLACK_APP_ID"],
-        message: "PostgreSQL storage requires SLACK_APP_ID.",
+        path: ["DATALAYER_SLACK_APP_ID"],
+        message: "PostgreSQL storage requires DATALAYER_SLACK_APP_ID.",
       });
     }
     if (
       value.DATALAYER_SLACK_STORE === "postgres" &&
-      !value.SLACK_TOKEN_ENCRYPTION_KEY
+      !value.DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY
     ) {
       context.addIssue({
         code: "custom",
-        path: ["SLACK_TOKEN_ENCRYPTION_KEY"],
-        message: "PostgreSQL storage requires SLACK_TOKEN_ENCRYPTION_KEY.",
+        path: ["DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY"],
+        message:
+          "PostgreSQL storage requires DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY.",
       });
     }
     if (
       value.DATALAYER_SLACK_TRANSPORT === "socket" &&
-      !value.SLACK_APP_TOKEN
+      !value.DATALAYER_SLACK_APP_TOKEN
     ) {
       context.addIssue({
         code: "custom",
-        path: ["SLACK_APP_TOKEN"],
-        message: "Socket Mode requires SLACK_APP_TOKEN.",
+        path: ["DATALAYER_SLACK_APP_TOKEN"],
+        message: "Socket Mode requires DATALAYER_SLACK_APP_TOKEN.",
       });
     }
     if (
       value.DATALAYER_SLACK_TRANSPORT === "http" &&
-      !value.SLACK_SIGNING_SECRET
+      !value.DATALAYER_SLACK_SIGNING_SECRET
     ) {
       context.addIssue({
         code: "custom",
-        path: ["SLACK_SIGNING_SECRET"],
-        message: "HTTP transport requires SLACK_SIGNING_SECRET.",
+        path: ["DATALAYER_SLACK_SIGNING_SECRET"],
+        message: "HTTP transport requires DATALAYER_SLACK_SIGNING_SECRET.",
       });
     }
     if (
       value.NODE_ENV === "production" &&
-      (!value.SLACK_CLIENT_ID ||
-        !value.SLACK_CLIENT_SECRET ||
-        !value.SLACK_STATE_SECRET ||
-        !value.SLACK_REDIRECT_URI ||
-        !value.SLACK_APP_ID)
+      (!value.DATALAYER_SLACK_CLIENT_ID ||
+        !value.DATALAYER_SLACK_CLIENT_SECRET ||
+        !value.DATALAYER_SLACK_STATE_SECRET ||
+        !value.DATALAYER_SLACK_REDIRECT_URI ||
+        !value.DATALAYER_SLACK_APP_ID)
     ) {
       context.addIssue({
         code: "custom",
-        path: ["SLACK_CLIENT_ID"],
+        path: ["DATALAYER_SLACK_CLIENT_ID"],
         message:
           "Production requires Slack app, client, state, and redirect configuration for OAuth distribution.",
       });
@@ -208,10 +216,14 @@ export type Config = z.infer<typeof schema>;
 
 /** Where Datalayer pushes an installation's deliveries, when this service has a public origin. */
 export function deliveryUrlOf(
-  config: Pick<Config, "DATALAYER_SLACK_PUBLIC_URL" | "SLACK_REDIRECT_URI">,
+  config: Pick<
+    Config,
+    "DATALAYER_SLACK_PUBLIC_URL" | "DATALAYER_SLACK_REDIRECT_URI"
+  >,
   hostUid: string,
 ): string | undefined {
-  const base = config.DATALAYER_SLACK_PUBLIC_URL ?? config.SLACK_REDIRECT_URI;
+  const base =
+    config.DATALAYER_SLACK_PUBLIC_URL ?? config.DATALAYER_SLACK_REDIRECT_URI;
   if (!base) return undefined;
   const origin = new URL(base).origin;
   if (!origin.startsWith("https://")) return undefined;

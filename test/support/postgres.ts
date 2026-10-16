@@ -7,7 +7,7 @@ import { Pool } from "pg";
  * A throwaway Postgres database of one test file's own: a schema of its name,
  * dropped and made again, the shared host tables and every migration
  * applied in it, as `scripts/migrate.ts` does. Test files run in
- * parallel against the one `SLACK_TEST_DATABASE_URL`; in one shared schema, a
+ * parallel against the one `DATALAYER_SLACK_TEST_DATABASE_URL`; in one shared schema, a
  * file's TRUNCATE or queue worker took another file's jobs (CI run
  * 38871996069: a dead job replayed by operations-quotas was gone).
  */
