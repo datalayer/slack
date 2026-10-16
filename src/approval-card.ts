@@ -1,5 +1,6 @@
 import type { KnownBlock, ModalView } from "@slack/types";
 
+import { renderApproval } from "./approval-renderers.js";
 import { slackMayDecide, type ApprovalPresentation } from "./host-contracts.js";
 
 /** Slack's limits a card is measured against: a value is shown whole or not offered. */
@@ -104,8 +105,12 @@ export function approvalCard(
 ): ApprovalCardMessage {
   const app = context.appName || "Your application";
   const headline = `${app} wants to ${ACTION_WORDS[presentation.action_class]}: ${presentation.tool_name}`;
+  // The renderer that knows the tool proves every argument is shown (S-302).
+  const typed = renderApproval(presentation);
+  const shown =
+    typed.fields.length > 0 ? typed.fields : shownFields(presentation);
   const valueBlocks: KnownBlock[] = [];
-  for (const field of shownFields(presentation)) {
+  for (const field of shown) {
     valueBlocks.push({
       type: "section",
       text: { type: "mrkdwn", text: `*${mrkdwnEscape(field.label)}*` },
@@ -114,8 +119,8 @@ export function approvalCard(
       valueBlocks.push({ type: "section", text: plain(chunk) });
   }
   const fits = valueBlocks.length + CARD_OWN_BLOCKS <= SLACK_BLOCKS_PER_MESSAGE;
-  const offersDecision = fits && slackMayDecide(presentation);
-  const why: string[] = [];
+  const offersDecision = fits && slackMayDecide(presentation) && typed.complete;
+  const why: string[] = [...typed.reasons.map(mrkdwnEscape)];
   if (!fits)
     why.push(
       "It is too long to show whole in Slack: read it whole in Datalayer before deciding.",
@@ -152,9 +157,8 @@ export function approvalCard(
           {
             type: "section" as const,
             text: plain(
-              shownFields(presentation)
-                .map((field) => field.label)
-                .join(", ") || presentation.tool_name,
+              shown.map((field) => field.label).join(", ") ||
+                presentation.tool_name,
             ),
           },
         ]),

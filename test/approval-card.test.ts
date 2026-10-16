@@ -70,6 +70,7 @@ describe("The approval card", () => {
     const body = "x".repeat(SLACK_TEXT_PER_BLOCK * 2 + 17);
     const long: ApprovalPresentation = {
       ...example,
+      arguments: { ...example.arguments, body },
       fields: [{ name: "body", label: "Body", value: body }],
     };
     const card = approvalCard(long, context);
@@ -81,7 +82,9 @@ describe("The approval card", () => {
       )
       .map((block) => block.text?.text ?? "")
       .join("");
-    expect(shown).toBe(body);
+    // Every value whole, the body continued over blocks, never cut.
+    expect(shown).toContain(body);
+    expect(shown).toContain("release@example.com");
     for (const block of blocks)
       if (block.text)
         expect(block.text.text.length).toBeLessThanOrEqual(
@@ -93,6 +96,7 @@ describe("The approval card", () => {
   it("offers only Review in Datalayer when it cannot be shown whole in Slack", () => {
     const huge: ApprovalPresentation = {
       ...example,
+      arguments: { ...example.arguments, body: "y".repeat(2900 * 60) },
       fields: [{ name: "body", label: "Body", value: "y".repeat(2900 * 60) }],
     };
     const card = approvalCard(huge, context);
