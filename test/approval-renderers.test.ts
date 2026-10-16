@@ -95,23 +95,15 @@ describe("typed approval renderers (S-302)", () => {
     expect(actions(sneaky)).toEqual([REVIEW_ACTION]);
   });
 
-  it("shows a write's place and the whole of what it writes", () => {
-    const write = of({
-      action_class: "write",
-      arguments: { content: "# Notes\nAll of it.", path: "/notes/launch.md" },
-      tool_name: "write_file",
-    });
-    const shown = renderApproval(write);
-    expect(shown.renderer).toBe("write");
-    expect(shown.fields).toEqual([
-      { label: "Where", value: "/notes/launch.md" },
-      { label: "What is written", value: "# Notes\nAll of it." },
-    ]);
-    expect(shown.complete).toBe(true);
-    expect(actions(write)).toContain(APPROVE_ACTION);
-  });
-
-  it.each(["delete", "publish", "financial", "execute", "unknown"] as const)(
+  it.each([
+    "read",
+    "write",
+    "delete",
+    "publish",
+    "financial",
+    "execute",
+    "unknown",
+  ] as const)(
     "keeps a %s action to Datalayer, even when the server would let a host decide",
     (actionClass) => {
       const presentation = of({
@@ -142,19 +134,9 @@ describe("typed approval renderers (S-302)", () => {
     expect(actions(odd)).toEqual([REVIEW_ACTION]);
   });
 
-  it("shows a read's every argument", () => {
-    const search = of({
-      action_class: "read",
-      arguments: { limit: 5, query: "launch" },
-      tool_name: "search_documents",
-    });
-    expect(renderApproval(search)).toMatchObject({
-      complete: true,
-      renderer: "read",
-    });
-    expect(renderApproval(search).fields).toEqual([
-      { label: "limit", value: "5" },
-      { label: "query", value: "launch" },
-    ]);
+  it("decides mail only: a send that is not mail goes to Datalayer (§15, 5)", () => {
+    const message = of({ tool_name: "send_message" });
+    expect(renderApproval(message).renderer).toBe("none");
+    expect(actions(message)).toEqual([REVIEW_ACTION]);
   });
 });
