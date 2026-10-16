@@ -1,8 +1,8 @@
 .PHONY: check dev-socket image push
 
 # The image's tag: bump it for every push, never overwrite a pushed tag.
-# 0.1.0 pushed 16 October 2026 from 997ad41 (plans/SLACK.md A-17, S-101).
-VERSION ?= 0.1.0
+# 0.1.0 pushed 16 October 2026 from 997ad41; 0.1.1 from 698b44b (plans/SLACK.md A-17, S-101).
+VERSION ?= 0.1.1
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 
