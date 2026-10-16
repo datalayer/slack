@@ -11,7 +11,9 @@
 #        replayed text streamed, entity-safe cuts, streaming on by default (S-206); assistant:write and the DM's
 #        suggested prompts (S-104); users:read, guests and external people refused (S-209); files opened in the
 #        conversation through the handoff (S-306). From 36c2be0 or later.
-VERSION ?= 0.1.4
+# 0.1.5: the Stop control for a streamed answer, the stopper named (S-205, S-206; migration 007 stopped_by);
+#        every setting named DATALAYER_SLACK_* (the chart since helm 5f9c25f passes only those). From b13d5a5 or later.
+VERSION ?= 0.1.5
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 
