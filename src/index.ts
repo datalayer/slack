@@ -20,7 +20,7 @@ import {
   deliveryRoute,
   type DeliveryJob,
 } from "./deliveries.js";
-import { healthRoutes } from "./health.js";
+import { healthRoutes, healthServer } from "./health.js";
 import { DatalayerHostClient } from "./host-client.js";
 import { HostInstallations } from "./host-installations.js";
 import { SignedStateStore } from "./oauth-state.js";
@@ -119,13 +119,26 @@ async function main(): Promise<void> {
     slack,
     config.DATALAYER_WEB_URL,
   );
-  registerSlackListeners(app, config, service, queue, { deliveries, hosts });
+  const role = config.DATALAYER_SLACK_ROLE;
+  registerSlackListeners(app, config, service, queue, {
+    consume: role !== "ingress",
+    deliveries,
+    hosts,
+  });
   const poller = new DeliveryPoller(store, client, enqueueDelivery);
 
-  await app.start(config.PORT);
-  poller.start(config.DATALAYER_DELIVERY_POLL_SECONDS);
+  // A worker serves only its health; Slack's requests reach the ingress.
+  const health =
+    role === "worker"
+      ? healthServer({
+          database: resources.ready,
+          queue: () => queue.ready(),
+        }).listen(config.PORT)
+      : undefined;
+  if (role !== "worker") await app.start(config.PORT);
+  if (role !== "ingress") poller.start(config.DATALAYER_DELIVERY_POLL_SECONDS);
   app.logger.info(
-    `@Datalayer Slack is listening on ${config.PORT} (${config.DATALAYER_SLACK_TRANSPORT}).`,
+    `@Datalayer Slack (${role}) is listening on ${config.PORT} (${config.DATALAYER_SLACK_TRANSPORT}).`,
   );
 
   let closing = false;
@@ -133,7 +146,8 @@ async function main(): Promise<void> {
     if (closing) return;
     closing = true;
     poller.stop();
-    await app.stop();
+    health?.close();
+    if (role !== "worker") await app.stop();
     await resources.close();
   };
   process.once("SIGINT", () => void close());

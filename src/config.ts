@@ -12,6 +12,13 @@ const schema = z
     PORT: z.coerce.number().int().positive().default(3000),
     DATALAYER_SLACK_TRANSPORT: z.enum(["http", "socket"]).default("http"),
     DATALAYER_SLACK_STORE: z.enum(["memory", "postgres"]).default("memory"),
+    /**
+     * What this process does (plans/SLACK.md §10): `ingress` serves Slack's
+     * signed requests and persists them, `worker` works the durable queue
+     * and reads the outbox, `all` both (one process: development, tests).
+     * Production scales two ingress replicas and the workers apart.
+     */
+    DATALAYER_SLACK_ROLE: z.enum(["all", "ingress", "worker"]).default("all"),
     DATABASE_URL: optionalSecret,
     SLACK_TOKEN_ENCRYPTION_KEY: optionalSecret,
     SLACK_TOKEN_ENCRYPTION_KEY_VERSION: z.coerce
@@ -87,6 +94,17 @@ const schema = z
         path: ["DATALAYER_HOST_KEY"],
         message:
           "One host key for every workspace is a development shortcut: each installation keeps its own, bound at install.",
+      });
+    }
+    if (
+      value.DATALAYER_SLACK_ROLE !== "all" &&
+      value.DATALAYER_SLACK_STORE !== "postgres"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATALAYER_SLACK_ROLE"],
+        message:
+          "Ingress and workers apart share a durable queue: they need the PostgreSQL store.",
       });
     }
     if (value.DATALAYER_SLACK_STORE === "postgres" && !value.DATABASE_URL) {

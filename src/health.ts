@@ -1,5 +1,10 @@
 import type { CustomRoute } from "@slack/bolt";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 
 export type ReadinessChecks = Readonly<Record<string, () => Promise<boolean>>>;
 
@@ -117,4 +122,21 @@ export function guardRequestTimestamps(
     }
     original(request, response);
   };
+}
+
+/** A worker's own server: its health and readiness only (no Slack route). */
+export function healthServer(checks: ReadinessChecks): Server {
+  const routes = healthRoutes(checks);
+  return createServer((request, response) => {
+    const path = (request.url ?? "").split("?")[0];
+    const route = routes.find(
+      (one) => one.path === path && request.method === "GET",
+    );
+    if (!route) {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    void route.handler(request as never, response as never);
+  });
 }

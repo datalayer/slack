@@ -252,6 +252,8 @@ function boltApp(config: Config, options: BoltAppOptions): App {
 export type SlackListenerParts = Readonly<{
   deliveries?: DeliveryHandler;
   hosts?: HostInstallations;
+  /** Whether this process works the queue: not an ingress-only replica (§10). */
+  consume?: boolean;
 }>;
 
 const installationKeyOf = (body: {
@@ -287,7 +289,7 @@ export function registerSlackListeners(
       });
     },
   });
-  queue.start((job) => worker.handle(job));
+  if (parts.consume ?? true) queue.start((job) => worker.handle(job));
 
   // Events: normalized without a network call, persisted once by their
   // event id, then acknowledged (processBeforeResponse for HTTP, §7.1).

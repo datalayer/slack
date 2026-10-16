@@ -6,6 +6,7 @@ import { createBoltApp, BOT_SCOPES } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
 import {
   healthRoutes,
+  healthServer,
   readiness,
   timestampWithinWindow,
 } from "../src/health.js";
@@ -234,5 +235,50 @@ describe("the guide, linked where people meet @Datalayer (S-108)", () => {
       "was not installed",
     ]);
     for (const [page] of pages) expect(page).toContain("/docs/slack");
+  });
+});
+
+describe("ingress and workers scaled apart (§10, A-17)", () => {
+  it("defaults to one process doing both, and needs the durable store to split", () => {
+    expect(
+      readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "x" })
+        .DATALAYER_SLACK_ROLE,
+    ).toBe("all");
+    expect(() =>
+      readConfig({
+        DATALAYER_SLACK_ROLE: "worker",
+        NODE_ENV: "test",
+        SLACK_SIGNING_SECRET: "x",
+      }),
+    ).toThrow(/durable queue/);
+  });
+
+  it("serves a worker's health and readiness, nothing else", async () => {
+    const server = healthServer({
+      database: async () => true,
+      queue: async () => false,
+    }).listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(
+        200,
+      );
+      const ready = await fetch(`http://127.0.0.1:${port}/readyz`);
+      expect(ready.status).toBe(503);
+      expect(await ready.json()).toEqual({
+        checks: { database: true, queue: false },
+        ready: false,
+      });
+      expect(
+        (
+          await fetch(`http://127.0.0.1:${port}/slack/events`, {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(404);
+    } finally {
+      server.close();
+    }
   });
 });
