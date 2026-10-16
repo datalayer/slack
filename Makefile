@@ -37,3 +37,12 @@ dev-socket:
 		exit 1; \
 	}
 	@DATALAYER_DEV_HOST_TOKEN="$$DATALAYER_API_KEY" npm run dev:socket
+
+# Create or update a Slack app from manifests/<env>.yaml (plans/SLACK.md §15.2):
+# rotates the configuration token in the prod1 rc first; on create, the ids and
+# secrets go to the rc, and with SECRET=namespace/name the signing and client
+# secrets also go to that Secret (kubectl's current context).
+# make slack-app ENV=development | ENV=staging SECRET=datalayer-api/datalayer-slack-env
+slack-app:
+	@test -n "$(ENV)" || (echo "ENV=development|staging|production" && exit 1)
+	npm run --silent slack-app -- $(ENV) $(if $(SECRET),--k8s-secret $(SECRET),)

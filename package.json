@@ -29,6 +29,7 @@
     "lint": "eslint src test scripts",
     "manifest:check": "node --import tsx scripts/verify-manifest.ts",
     "manifest:render": "node --import tsx scripts/render-manifest.ts",
+    "slack-app": "node --import tsx scripts/slack-app.ts",
     "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "start": "node dist/index.js",
     "test": "vitest run",

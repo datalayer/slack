@@ -128,6 +128,10 @@ The intended customer journey is:
 
 The encrypted multi-workspace OAuth store, reinstall handling, tenant-specific token routing and uninstall cleanup are implemented. Public customer registration is **not available yet**: the authoritative Datalayer host contracts (installation binding, account links, the audience-bound host-token exchange, deliveries, approval presentation, revocation) are built in ai-agents but not deployed, and neither is this adapter; it keeps a host key per workspace, asks link codes from App Home, receives deliveries and renders approval cards, but has not run against a real workspace. Public distribution operations are also missing. Until those are implemented and tested, use only the Datalayer development workspace flow below; do not onboard third-party customers manually with shared tokens.
 
+## Creating and updating the Slack apps
+
+`make slack-app ENV=<development|staging|production>` creates or updates an app from `manifests/<env>.yaml` through Slack's App Manifest API (`scripts/slack-app.ts`). It reads the configuration token from `~/.datalayer/datalayerrc-prod1` (`DATALAYER_SLACK_CONFIG_TOKEN`, `DATALAYER_SLACK_CONFIG_REFRESH_TOKEN`, generated once at [api.slack.com/apps](https://api.slack.com/apps) under *Your App Configuration Tokens*), rotates it first and saves both new tokens there. On create, Slack answers the app's credentials once: the script saves `DATALAYER_SLACK_<ENV>_APP_ID`, `_CLIENT_ID`, `_CLIENT_SECRET` and `_SIGNING_SECRET` to the rc, and with `SECRET=datalayer-api/datalayer-slack-env` (kubectl on r1) writes the signing and client secrets to the Secret the chart created. When the rc already names the app, it updates the manifest and leaves the credentials alone. It prints the app id, what changed and the install link, never a secret. The `Datalayer Dev` app was created this way on 16 October 2026 (`A0CAMVC1E1E`).
+
 ## Datalayer workspace setup: Socket Mode
 
 Follow these steps in order. They create a development-only Slack app and keep all work in memory.
