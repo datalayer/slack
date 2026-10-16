@@ -5,6 +5,7 @@ import type {
   ThreadKey,
 } from "./domain.js";
 import { homeView } from "./home.js";
+import { noTracer, traceAttributes, type Tracer } from "./observability.js";
 import { DEFAULT_QUOTAS, windowOf } from "./quotas.js";
 import type { HostInstallations } from "./host-installations.js";
 import { escapeSlack } from "./presentation.js";
@@ -43,6 +44,8 @@ export class SlackWorker {
         userId: string,
         view: unknown,
       ) => Promise<void>;
+      /** One span per job, its ids pseudonymous (§12.2). */
+      tracer?: Tracer;
     }> = {},
   ) {}
 
@@ -51,6 +54,24 @@ export class SlackWorker {
   }
 
   async handle(job: SlackJob): Promise<void> {
+    const tracer = this.parts.tracer ?? noTracer;
+    const kind = "delivery" in job ? "delivery" : (job.kind ?? "prompt");
+    const key =
+      "delivery" in job
+        ? undefined
+        : "prompt" in job
+          ? job.prompt
+          : "key" in job
+            ? job.key
+            : job.thread;
+    await tracer.span(
+      `slack.job.${kind}`,
+      key ? traceAttributes(key) : {},
+      () => this.#handle(job),
+    );
+  }
+
+  async #handle(job: SlackJob): Promise<void> {
     if ("delivery" in job) {
       await this.parts.deliveries?.receive(job);
       return;

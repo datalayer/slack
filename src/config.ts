@@ -65,6 +65,14 @@ const schema = z
       .int()
       .positive()
       .default(600),
+    /**
+     * Stream answers with chat.startStream (S-206): on where the workspaces'
+     * plans offer Slack's agent streaming; off, a placeholder is updated.
+     */
+    DATALAYER_SLACK_STREAMING: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     /** quiet: one status line while a turn works; noisy: every tool it used, listed (S-308). */
     DATALAYER_SLACK_EVENTS: z.enum(["quiet", "noisy"]).default("quiet"),
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,

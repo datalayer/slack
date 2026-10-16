@@ -21,6 +21,7 @@ import {
   type DeliveryJob,
 } from "./deliveries.js";
 import { healthRoutes, healthServer } from "./health.js";
+import { Logger, LogTracer } from "./observability.js";
 import { DatalayerHostClient } from "./host-client.js";
 import { HostInstallations } from "./host-installations.js";
 import { SignedStateStore } from "./oauth-state.js";
@@ -92,7 +93,9 @@ async function main(): Promise<void> {
           )
         : undefined,
   });
-  const slack = new BoltSlackPort(app.client, store);
+  const slack = new BoltSlackPort(app.client, store, {
+    streaming: config.DATALAYER_SLACK_STREAMING,
+  });
   const service = new SlackAgentService(
     store,
     agents,
@@ -129,6 +132,7 @@ async function main(): Promise<void> {
   const role = config.DATALAYER_SLACK_ROLE;
   registerSlackListeners(app, config, service, queue, {
     consume: role !== "ingress",
+    tracer: new LogTracer(new Logger()),
     deliveries,
     hosts,
   });

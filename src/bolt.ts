@@ -7,6 +7,7 @@ import {
   type InstallationStore,
   type Logger,
 } from "@slack/bolt";
+import type { KnownBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 
 import type { Config } from "./config.js";
@@ -24,6 +25,7 @@ import {
 } from "./approval-card.js";
 import { DECISION_WORDS, type DeliveryHandler } from "./deliveries.js";
 import { guardRequestTimestamps } from "./health.js";
+import type { Tracer } from "./observability.js";
 import {
   CONNECT_ACTION,
   DOCS_ACTION,
@@ -53,16 +55,58 @@ import {
   isThreadKey,
   type SlackMessage,
   type SlackPort,
+  type SlackStreaming,
 } from "./slack-port.js";
 import type { SlackAgentService, StopValue } from "./service.js";
 import { SEND_EDITED_ACTION, SlackWorker, type SlackJob } from "./worker.js";
 import type { SlackStore } from "./store.js";
 
 export class BoltSlackPort implements SlackPort {
+  readonly streaming?: SlackStreaming;
+
+  /**
+   * `streaming`: Slack's text streaming (`chat.startStream`, `appendStream`,
+   * `stopStream`, S-206) where the workspace's plan and the app offer it;
+   * otherwise answers are a placeholder updated at a bounded cadence.
+   */
   constructor(
     readonly client: WebClient,
     readonly store: SlackStore,
-  ) {}
+    options: { streaming?: boolean } = {},
+  ) {
+    if (options.streaming)
+      this.streaming = {
+        append: async (key, ts, markdown) => {
+          await this.client.chat.appendStream({
+            channel: key.channelId,
+            markdown_text: markdown,
+            token: await this.#token(key),
+            ts,
+          });
+        },
+        start: async (key, recipientUserId, markdown) => {
+          const response = await this.client.chat.startStream({
+            channel: key.channelId,
+            markdown_text: markdown,
+            recipient_team_id: key.teamId,
+            recipient_user_id: recipientUserId,
+            thread_ts: key.threadTs,
+            token: await this.#token(key),
+          });
+          if (!response.ts)
+            throw new Error("Slack did not return the stream's message.");
+          return response.ts;
+        },
+        stop: async (key, ts, message) => {
+          await this.client.chat.stopStream({
+            blocks: message.blocks as KnownBlock[] | undefined,
+            channel: key.channelId,
+            token: await this.#token(key),
+            ts,
+          });
+        },
+      };
+  }
 
   async postDirect(
     key: SlackInstallationKey,
@@ -254,6 +298,7 @@ export type SlackListenerParts = Readonly<{
   hosts?: HostInstallations;
   /** Whether this process works the queue: not an ingress-only replica (§10). */
   consume?: boolean;
+  tracer?: Tracer;
 }>;
 
 const installationKeyOf = (body: {
@@ -279,6 +324,7 @@ export function registerSlackListeners(
   const worker = new SlackWorker(service, queue, {
     deliveries: parts.deliveries,
     hosts: parts.hosts,
+    tracer: parts.tracer,
     publishHome: async (key, userId, view) => {
       const installation = await service.store.getInstallation(key);
       if (!installation) return;

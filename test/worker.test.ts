@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { LogTracer, pseudonym } from "../src/observability.js";
 import { MemoryWorkQueue } from "../src/queue.js";
 import { SlackAgentService } from "../src/service.js";
 import type { SemanticEvent } from "../src/semantic.js";
@@ -299,5 +300,36 @@ describe("uninstall races (S-106, §12.1 persistence)", () => {
     expect(await store.getThread(promptOf())).toBeUndefined();
     await service.handlePrompt(promptOf(), "B1");
     expect(agents.requests).toHaveLength(1);
+  });
+});
+
+describe("tracing a job (S-101, §12.2)", () => {
+  it("spans each job by its kind with pseudonymous ids, never its words", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const { lines, logger } = keptLogger();
+    const service = new SlackAgentService(
+      store,
+      new FakeAgents(),
+      new FakeSlack(),
+      "https://datalayer.ai",
+      new FakeLinks(),
+      {
+        clock: new FakeClock(),
+        logger: keptLogger().logger,
+      },
+    );
+    const worker = new SlackWorker(service, new KeptQueue(), {
+      tracer: new LogTracer(logger, () => 0),
+    });
+    await worker.handle({ prompt: promptOf({ text: "<@B1> my secret plan" }) });
+    const span = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+    expect(span).toMatchObject({
+      event: "span",
+      name: "slack.job.prompt",
+      outcome: "ok",
+    });
+    expect(span["datalayer.slack.installation"]).toBe(pseudonym("A1:-:T1"));
+    expect(lines.join("\n")).not.toContain("secret plan");
+    expect(lines.join("\n")).not.toContain("C1");
   });
 });
