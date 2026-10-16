@@ -12,6 +12,12 @@ export class PostgresWorkQueue<T> implements WorkQueue<T> {
   constructor(
     readonly database: Pool,
     readonly pollIntervalMs = 250,
+    /**
+     * How often a job being worked renews its lease (S-207): well within the
+     * five minutes after which `reclaimAbandonedJobs` takes a job back, so
+     * only a worker that died loses its job, not one answering a long turn.
+     */
+    readonly leaseRenewMs = 60_000,
   ) {}
 
   async enqueue(item: T, idempotencyKey?: string): Promise<boolean> {
@@ -126,6 +132,15 @@ export class PostgresWorkQueue<T> implements WorkQueue<T> {
         await delay(this.pollIntervalMs);
         continue;
       }
+      const lease = setInterval(() => {
+        void this.database
+          .query(
+            "UPDATE slack_jobs SET locked_at = now() WHERE id = $1 AND state = 'processing'",
+            [job.id],
+          )
+          .catch(() => undefined); // the next renewal, or the reclaim, decides
+      }, this.leaseRenewMs);
+      lease.unref();
       try {
         await this.#handler?.(job.payload);
         await this.database.query("DELETE FROM slack_jobs WHERE id = $1", [
@@ -133,6 +148,8 @@ export class PostgresWorkQueue<T> implements WorkQueue<T> {
         ]);
       } catch (error) {
         await this.#fail(job, error);
+      } finally {
+        clearInterval(lease);
       }
     }
   }

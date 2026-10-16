@@ -26,7 +26,7 @@ import {
 import { TurnRenderer } from "./render.js";
 import { TurnRouting, type Refusal } from "./routing.js";
 import type { SlackMessage, SlackPort } from "./slack-port.js";
-import type { SlackStore } from "./store.js";
+import { turnAliveAt, type SlackStore } from "./store.js";
 
 /** A running turn that said nothing for this long may be taken over (a crashed worker). */
 export const TURN_STALE_AFTER_MS = 15 * 60 * 1000;
@@ -37,6 +37,12 @@ export const TURN_STALE_AFTER_MS = 15 * 60 * 1000;
  * may still be alive, and the job is a duplicate in flight.
  */
 export const RESUME_AFTER_MS = 5 * 60 * 1000;
+/**
+ * How often the worker answering a turn says it is alive (S-207): well
+ * within `RESUME_AFTER_MS` and `TURN_STALE_AFTER_MS`, so a long turn is never
+ * resumed by a redelivery nor taken over by a new prompt while it runs.
+ */
+export const TURN_HEARTBEAT_MS = 60 * 1000;
 
 /** Slack's answer when the person is gone from the workspace: their link ends (S-103). */
 export const GONE_USER_ERRORS = new Set([
@@ -59,6 +65,8 @@ export type ServiceOptions = Readonly<{
   quotas?: QuotaLimits;
   /** quiet (one status line) or noisy (every tool listed) answers (S-308). */
   events?: "quiet" | "noisy";
+  /** How often a running turn's heartbeat is written (`TURN_HEARTBEAT_MS`). */
+  heartbeatMs?: number;
   /** Where *Open in Datalayer* goes for a session: a one-use handoff when Datalayer answers one. */
   openUrlOf?: (sessionId: string, request: TurnRequest) => Promise<string>;
 }>;
@@ -168,10 +176,10 @@ export class SlackAgentService {
     if (claim.outcome === "done") return; // a duplicate of an answered event
     if (
       claim.outcome === "resumed" &&
-      now.getTime() - new Date(claim.turn.startedAt).getTime() <
+      now.getTime() - turnAliveAt(claim.turn) <
         (this.options.resumeAfterMs ?? RESUME_AFTER_MS)
     )
-      return; // the same event, its worker still answering
+      return; // the same event, its worker still answering (its heartbeat is recent)
     if (claim.outcome === "busy") {
       this.#refused(prompt, "busy");
       await this.privately(prompt, prompt.userId, {
@@ -267,6 +275,21 @@ export class SlackAgentService {
       } satisfies StopValue);
     renderer.stopValue = stopValue();
 
+    // While this worker answers, it says so every minute (S-207): on real
+    // time, unref'd, and stopped with the turn.
+    const heartbeat = setInterval(() => {
+      void this.store
+        .updateTurn(prompt, prompt.eventId, {
+          heartbeatAt: new Date(this.#clock.now()).toISOString(),
+        })
+        .catch((error: unknown) =>
+          this.logger.warn("turn.heartbeat_failed", {
+            error_name: error instanceof Error ? error.name : "unknown",
+          }),
+        );
+    }, this.options.heartbeatMs ?? TURN_HEARTBEAT_MS);
+    heartbeat.unref();
+
     try {
       const messageTs = await renderer.begin();
       await this.store.updateTurn(prompt, prompt.eventId, {
@@ -319,6 +342,7 @@ export class SlackAgentService {
       });
       await renderer.finish().catch(() => undefined);
     } finally {
+      clearInterval(heartbeat);
       await this.store.endTurn(prompt, prompt.eventId);
     }
   }

@@ -34,7 +34,8 @@ Added on 16 October 2026 (plans/SLACK.md round 1):
 - **ingress**: each signed event is normalized without a network call (`src/ingress.ts`) and persisted once by its event id, with the job, in one transaction. It is acknowledged only after that (`processBeforeResponse`). Bolt checks the signature over the raw body. A timestamp more than five minutes away, in the past or the future, is refused in front of Bolt (`src/health.ts`). Bot, self, unsupported-subtype and channel (non-mention) messages are ignored.
 - **the turn worker** (`src/service.ts`, `src/routing.ts`, `src/worker.ts`):
   - It resolves installation → shared channel (refused) → linked person → application. The application is the thread's own, else an explicit choice, else the channel's binding, else the workspace default. It must be allowed here and in this kind of conversation. Every refusal is private (ephemeral in a channel) and starts no run.
-  - One turn runs at a time per thread. A second prompt is refused privately while one runs.
+  - One turn runs at a time per thread. A second prompt is refused privately while one runs. On Postgres the thread is locked for the claim even before its first turn row exists (a transaction-scoped advisory lock).
+  - A long turn is not mistaken for a crashed one: its worker writes a heartbeat every minute (migration `006`), and its queue job renews its five-minute lease every minute. A redelivery resumes, and a new prompt takes over, only once the heartbeat stops.
   - _Stop_ names the run it stops.
   - After a crash, a redelivery resumes the same message, and Datalayer replays the turn rather than running it again.
   - _Use another application_ and _Start over_ archive the thread's binding and open a new session. Only the person who opened it can use them.

@@ -108,7 +108,9 @@ export interface SlackStore {
   updateTurn(
     key: ThreadKey,
     eventId: string,
-    patch: Partial<Pick<ThreadTurn, "messageTs" | "runId" | "sessionId">>,
+    patch: Partial<
+      Pick<ThreadTurn, "heartbeatAt" | "messageTs" | "runId" | "sessionId">
+    >,
   ): Promise<void>;
   endTurn(key: ThreadKey, eventId: string): Promise<void>;
   getTurn(key: ThreadKey): Promise<ThreadTurn | undefined>;
@@ -139,12 +141,17 @@ export interface SlackStore {
 }
 
 /** Whether a running turn has gone quiet long enough to be taken over. */
+/** When a turn was last seen alive: its worker's last heartbeat, else its start (S-207). */
+export function turnAliveAt(turn: ThreadTurn): number {
+  return new Date(turn.heartbeatAt ?? turn.startedAt).getTime();
+}
+
 export function turnIsStale(
   turn: ThreadTurn,
   now: Date,
   staleAfterMs: number,
 ): boolean {
-  return now.getTime() - new Date(turn.startedAt).getTime() > staleAfterMs;
+  return now.getTime() - turnAliveAt(turn) > staleAfterMs;
 }
 
 /** Development and test store. Production configuration rejects it. */
@@ -377,7 +384,9 @@ export class MemorySlackStore implements SlackStore {
   async updateTurn(
     key: ThreadKey,
     eventId: string,
-    patch: Partial<Pick<ThreadTurn, "messageTs" | "runId" | "sessionId">>,
+    patch: Partial<
+      Pick<ThreadTurn, "heartbeatAt" | "messageTs" | "runId" | "sessionId">
+    >,
   ): Promise<void> {
     const current = this.#turns.get(threadKey(key));
     if (current?.eventId === eventId)

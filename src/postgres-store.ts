@@ -72,6 +72,7 @@ type TurnRow = Readonly<{
   channel_id: string;
   enterprise_id: string;
   event_id: string;
+  heartbeat_at: Date | string | null;
   message_ts: string | null;
   run_id: string | null;
   session_id: string | null;
@@ -98,6 +99,7 @@ function turnOfRow(row: TurnRow): ThreadTurn {
     channelId: row.channel_id,
     enterpriseId: row.enterprise_id || undefined,
     eventId: row.event_id,
+    heartbeatAt: row.heartbeat_at ? dateString(row.heartbeat_at) : undefined,
     messageTs: row.message_ts ?? undefined,
     runId: row.run_id ?? undefined,
     sessionId: row.session_id ?? undefined,
@@ -704,6 +706,13 @@ export class PostgresSlackStore implements SlackStore {
     const client = await this.database.connect();
     try {
       await client.query("BEGIN");
+      // The thread's lock, held to the end of this transaction, whether or
+      // not its turn row exists yet: `FOR UPDATE` alone locks no row on a
+      // thread's first turn, and two workers would both start (S-207).
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`slack_thread_turns:${JSON.stringify(threadValues(key))}`],
+      );
       const finished = await client.query(
         `SELECT 1 FROM slack_finished_events WHERE ${THREAD_WHERE} AND event_id = $6`,
         [...threadValues(key), eventId],
@@ -744,7 +753,7 @@ export class PostgresSlackStore implements SlackStore {
            VALUES ($1,$2,$3,$4,$5,$6,'running',$7)
            ON CONFLICT (app_id, enterprise_id, team_id, channel_id, thread_ts) DO UPDATE SET
              event_id = EXCLUDED.event_id, state = 'running', started_at = EXCLUDED.started_at,
-             run_id = NULL, message_ts = NULL, session_id = NULL
+             heartbeat_at = NULL, run_id = NULL, message_ts = NULL, session_id = NULL
            RETURNING *`,
           [...threadValues(key), eventId, now.toISOString()],
         );
@@ -766,13 +775,16 @@ export class PostgresSlackStore implements SlackStore {
   async updateTurn(
     key: ThreadKey,
     eventId: string,
-    patch: Partial<Pick<ThreadTurn, "messageTs" | "runId" | "sessionId">>,
+    patch: Partial<
+      Pick<ThreadTurn, "heartbeatAt" | "messageTs" | "runId" | "sessionId">
+    >,
   ): Promise<void> {
     await this.database.query(
       `UPDATE slack_thread_turns SET
          message_ts = COALESCE($7, message_ts),
          run_id = COALESCE($8, run_id),
-         session_id = COALESCE($9, session_id)
+         session_id = COALESCE($9, session_id),
+         heartbeat_at = COALESCE($10, heartbeat_at)
        WHERE ${THREAD_WHERE} AND event_id = $6`,
       [
         ...threadValues(key),
@@ -780,6 +792,7 @@ export class PostgresSlackStore implements SlackStore {
         patch.messageTs ?? null,
         patch.runId ?? null,
         patch.sessionId ?? null,
+        patch.heartbeatAt ?? null,
       ],
     );
   }

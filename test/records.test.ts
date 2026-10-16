@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { SecretCipher } from "../src/crypto.js";
@@ -18,7 +18,7 @@ import { MemoryWorkQueue, type WorkQueue } from "../src/queue.js";
 /**
  * The §5 Slack-side records (S-004), on the memory store always and on
  * Postgres when `SLACK_TEST_DATABASE_URL` names a throwaway database:
- * migrations 001–003 applied, then the same cases.
+ * every migration applied, then the same cases.
  */
 const DATABASE_URL = process.env.SLACK_TEST_DATABASE_URL;
 
@@ -219,6 +219,44 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       ).toBe("started");
     });
 
+    it("starts one of two concurrent first turns of a thread, the other busy (S-207)", async () => {
+      await reset();
+      await installed(store);
+      // A thread with no turn row yet: the review reproduced both starting on Postgres.
+      const fresh: ThreadKey = { ...thread, threadTs: "7.0" };
+      const claims = await Promise.all(
+        ["Ev1", "Ev2", "Ev3", "Ev4"].map((eventId) =>
+          store.beginTurn(fresh, eventId, at, 60_000),
+        ),
+      );
+      expect(claims.filter((one) => one.outcome === "started")).toHaveLength(1);
+      expect(claims.filter((one) => one.outcome === "busy")).toHaveLength(3);
+    });
+
+    it("keeps a heartbeat that keeps a long turn from being taken over (S-207)", async () => {
+      await reset();
+      await installed(store);
+      await store.beginTurn(thread, "Ev1", at, 60_000);
+      const beat = new Date(at.getTime() + 100_000);
+      await store.updateTurn(thread, "Ev1", {
+        heartbeatAt: beat.toISOString(),
+      });
+      expect((await store.getTurn(thread))?.heartbeatAt).toBe(
+        beat.toISOString(),
+      );
+      // Two minutes after the start, but twenty seconds after the heartbeat.
+      const later = new Date(at.getTime() + 120_000);
+      expect(
+        (await store.beginTurn(thread, "Ev2", later, 60_000)).outcome,
+      ).toBe("busy");
+      // Its heartbeat stops (the worker died): taken over once stale, and the
+      // new turn starts with no heartbeat of the old one.
+      const much = new Date(at.getTime() + 300_000);
+      const taken = await store.beginTurn(thread, "Ev3", much, 60_000);
+      expect(taken.outcome).toBe("started");
+      expect(taken.turn.heartbeatAt).toBeUndefined();
+    });
+
     it("archives a binding, forgets it and remembers the next application", async () => {
       await reset();
       await installed(store);
@@ -314,6 +352,72 @@ if (DATABASE_URL) {
     await database?.end();
   });
   const cipher = new SecretCipher(randomBytes(32).toString("base64"), 1);
+  describe("the Postgres turn lock on a thread's first turn (S-207)", () => {
+    it("serializes two workers even when both read the thread before either writes", async () => {
+      await database.query(
+        "TRUNCATE slack_installations, slack_event_claims, slack_jobs CASCADE",
+      );
+      // Each worker pauses right after reading the thread's turn row, so
+      // both read "no turn" before either inserts: the review's reproduction.
+      const pause = async (client: PoolClient): Promise<PoolClient> => {
+        const query = client.query.bind(client) as (
+          text: string,
+          values?: unknown[],
+        ) => Promise<unknown>;
+        return Object.assign(Object.create(client) as PoolClient, {
+          query: async (text: string, values?: unknown[]) => {
+            const result = await query(text, values);
+            if (text.includes("FOR UPDATE"))
+              await new Promise((resolve) => setTimeout(resolve, 150));
+            return result;
+          },
+          release: () => client.release(),
+        });
+      };
+      const slowed = Object.assign(Object.create(database) as Pool, {
+        connect: async () => pause(await database.connect()),
+        query: database.query.bind(database),
+      });
+      const store = new PostgresSlackStore(slowed, cipher);
+      await installed(store);
+      const fresh: ThreadKey = { ...thread, threadTs: "8.0" };
+      const claims = await Promise.all([
+        store.beginTurn(fresh, "Ev1", at, 60_000),
+        store.beginTurn(fresh, "Ev2", at, 60_000),
+      ]);
+      expect(claims.map((one) => one.outcome).sort()).toEqual([
+        "busy",
+        "started",
+      ]);
+    });
+  });
+  describe("the Postgres work queue's lease (S-207)", () => {
+    it("renews a job's lease while it is worked, so a long turn is not reclaimed", async () => {
+      await database.query("TRUNCATE slack_jobs");
+      const queue = new PostgresWorkQueue<{ n: number }>(database, 10, 50);
+      await queue.enqueue({ n: 1 });
+      const leases: number[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => (finish = resolve));
+      queue.start(async () => {
+        for (let read = 0; read < 4; read += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          const row = await database.query<{ locked_at: Date }>(
+            "SELECT locked_at FROM slack_jobs WHERE state = 'processing'",
+          );
+          leases.push(new Date(row.rows[0]?.locked_at ?? 0).getTime());
+        }
+        finish();
+      });
+      await done;
+      await queue.stop();
+      expect(leases.every((lease) => lease > 0)).toBe(true);
+      for (let index = 1; index < leases.length; index += 1)
+        expect(leases[index]).toBeGreaterThan(leases[index - 1] ?? 0);
+      const left = await database.query("SELECT 1 FROM slack_jobs");
+      expect(left.rowCount).toBe(0);
+    });
+  });
   suite("Slack records on Postgres", async () => {
     await database.query(
       "TRUNCATE slack_installations, slack_event_claims, slack_jobs CASCADE",

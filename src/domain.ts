@@ -114,6 +114,8 @@ export type ThreadTurn = ThreadKey &
     eventId: string;
     state: "running" | "done";
     startedAt: string;
+    /** The last heartbeat of the worker answering it (S-207): a long turn is not a crashed one. */
+    heartbeatAt?: string;
     /** The run the stream named: what Stop stops. */
     runId?: string;
     /** The message the answer is in: what a recovered turn resumes. */
