@@ -603,27 +603,39 @@ export class PostgresSlackStore implements SlackStore {
       : undefined;
   }
 
-  async putChannelBinding(binding: ChannelBinding): Promise<void> {
-    await this.database.query(
-      `INSERT INTO slack_channel_bindings
-         (app_id, enterprise_id, team_id, channel_id, application_id, state, updated_by, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (app_id, enterprise_id, team_id, channel_id) DO UPDATE SET
-         application_id = EXCLUDED.application_id,
-         state = EXCLUDED.state,
-         updated_by = EXCLUDED.updated_by,
-         updated_at = EXCLUDED.updated_at`,
-      [
-        binding.appId,
-        enterprise(binding.enterpriseId),
-        binding.teamId,
-        binding.channelId,
-        binding.applicationId ?? null,
-        binding.state,
-        binding.updatedBy,
-        binding.updatedAt,
-      ],
-    );
+  async putChannelBindings(
+    key: SlackInstallationKey,
+    bindings: readonly ChannelBinding[],
+  ): Promise<void> {
+    const client = await this.database.connect();
+    const values = [key.appId, enterprise(key.enterpriseId), key.teamId];
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "DELETE FROM slack_channel_bindings WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3",
+        values,
+      );
+      for (const binding of bindings)
+        await client.query(
+          `INSERT INTO slack_channel_bindings
+             (app_id, enterprise_id, team_id, channel_id, application_id, state, updated_by, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            ...values,
+            binding.channelId,
+            binding.applicationId ?? null,
+            binding.state,
+            binding.updatedBy,
+            binding.updatedAt,
+          ],
+        );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getDelivery(

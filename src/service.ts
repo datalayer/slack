@@ -193,6 +193,14 @@ export class SlackAgentService {
     prompt: IncomingPrompt,
     botUserId?: string,
   ): Promise<void> {
+    // Datalayer's rules for this installation, read again now (S-403): a
+    // channel turned off, a rule removed or changed holds at this mention,
+    // not only once App Home is opened. A refusal there is the exchange's to
+    // say; anything else fails the job, which is retried.
+    await this.links.refreshAllowances?.(prompt).catch((error: unknown) => {
+      if (error instanceof HostRefusedError && error.status < 500) return;
+      throw error;
+    });
     const resolution = await this.routing.resolve(prompt);
     if (!resolution.ok) {
       if (resolution.refusal === "not-installed") return; // late work is dropped

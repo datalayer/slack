@@ -10,11 +10,20 @@ import {
   DatalayerHostClient,
   SecretCipher,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import type { SlackInstallation } from "../src/domain.js";
+import type { SlackInstallation, SlackInstallationKey } from "../src/domain.js";
 import { HostInstallations } from "../src/host-installations.js";
 import { PostgresInstallationStore } from "../src/oauth-store.js";
 import { PostgresSlackStore } from "../src/postgres-store.js";
 import { MemorySlackStore } from "../src/store.js";
+import { SlackAgentService } from "../src/service.js";
+import {
+  FakeAgents,
+  FakeClock,
+  FakeLinks,
+  FakeSlack,
+  keptLogger,
+  promptOf,
+} from "./support/fakes.js";
 import { CONTRACTS_PATH } from "./support/contracts.js";
 
 /** The fixture ai-agents tests its half against: the routes and request shapes. */
@@ -505,5 +514,78 @@ describe("What the installation allows, read from Datalayer (S-104, S-105, S-403
       hostsOver(store, fetchImplementation).unlink(active, "U1"),
     ).resolves.toBe(true);
     expect(calls[0]?.headers[contracts.headers.host_key!]).toBe(KEY);
+  });
+});
+
+describe("Datalayer's channel rules hold at the next mention (S-403)", () => {
+  it("reads them again before routing each prompt, without App Home, and drops what Datalayer dropped", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      ...active,
+      datalayerHostKey: KEY,
+      datalayerHostUid: "inst-1",
+    });
+    let channels: Array<Record<string, string>> = [
+      { id: "C1", state: "allow", deployment: "dep-2" },
+    ];
+    const { calls, fetchImplementation } = wire({
+      [route("self")]: () =>
+        Response.json({
+          success: true,
+          host: {
+            uid: "inst-1",
+            account_uid: "alice",
+            state: "active",
+            default_deployment: "dep-1",
+            deployments: [
+              { uid: "dep-1", app_name: "Launch Review", kept: true },
+              { uid: "dep-2", app_name: "Desk", kept: true },
+            ],
+            channels,
+            paused: false,
+          },
+        }),
+    });
+    const hosts = hostsOver(store, fetchImplementation);
+    const links = Object.assign(new FakeLinks(), {
+      refreshAllowances: (key: SlackInstallationKey) =>
+        hosts.refreshAllowances(key),
+    });
+    const agents = new FakeAgents();
+    const slack = new FakeSlack();
+    const service = new SlackAgentService(store, agents, slack, WEB, links, {
+      clock: new FakeClock(),
+      logger: keptLogger().logger,
+    });
+
+    // allow → a deployment: the very next mention goes to it.
+    await service.handlePrompt(promptOf(), "B1");
+    expect(agents.requests.map((one) => one.applicationId)).toEqual(["dep-2"]);
+
+    // A deny set at Datalayer refuses the next mention with the channel's sentence.
+    channels = [{ id: "C1", state: "deny" }];
+    await service.handlePrompt(
+      promptOf({ eventId: "Ev2", threadTs: "2.0" }),
+      "B1",
+    );
+    expect(agents.requests).toHaveLength(1);
+    expect(slack.of("private").map((call) => call.message?.text ?? "")).toEqual(
+      [expect.stringContaining("turned off in this channel")],
+    );
+
+    // The rule removed at Datalayer is gone here: the default answers again.
+    channels = [];
+    await service.handlePrompt(
+      promptOf({ eventId: "Ev3", threadTs: "3.0" }),
+      "B1",
+    );
+    expect(agents.requests.map((one) => one.applicationId)).toEqual([
+      "dep-2",
+      "dep-1",
+    ]);
+    await expect(store.getChannelBinding(active, "C1")).resolves.toBe(
+      undefined,
+    );
+    expect(calls.filter((call) => call.key === route("self"))).toHaveLength(3);
   });
 });

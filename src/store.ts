@@ -91,7 +91,14 @@ export interface SlackStore extends QuotaStore {
     key: SlackInstallationKey,
     channelId: string,
   ): Promise<ChannelBinding | undefined>;
-  putChannelBinding(binding: ChannelBinding): Promise<void>;
+  /**
+   * Replace the installation's channel rules with Datalayer's set (S-403):
+   * a rule Datalayer dropped is gone here too.
+   */
+  putChannelBindings(
+    key: SlackInstallationKey,
+    bindings: readonly ChannelBinding[],
+  ): Promise<void>;
   getDelivery(
     key: SlackInstallationKey,
     deliveryId: string,
@@ -318,11 +325,20 @@ export class MemorySlackStore implements SlackStore {
     return this.#channels.get(`${installationKey(key)}:${channelId}`);
   }
 
-  async putChannelBinding(binding: ChannelBinding): Promise<void> {
-    this.#channels.set(
-      `${installationKey(binding)}:${binding.channelId}`,
-      binding,
-    );
+  async putChannelBindings(
+    key: SlackInstallationKey,
+    bindings: readonly ChannelBinding[],
+  ): Promise<void> {
+    const prefix = `${installationKey(key)}:`;
+    for (const kept of [...this.#channels.keys()])
+      if (kept.startsWith(prefix)) this.#channels.delete(kept);
+    for (const binding of bindings)
+      this.#channels.set(`${prefix}${binding.channelId}`, {
+        ...binding,
+        appId: key.appId,
+        enterpriseId: key.enterpriseId,
+        teamId: key.teamId,
+      });
   }
 
   async getDelivery(

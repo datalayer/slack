@@ -121,24 +121,26 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       expect(after[0]).toMatchObject({ applicationId: "dep-2", name: "Desk" });
     });
 
-    it("keeps a channel binding per channel", async () => {
+    it("keeps a channel binding per channel, replaced wholesale by Datalayer's set (S-403)", async () => {
       await reset();
       await installed(store);
-      await store.putChannelBinding({
-        ...key,
-        channelId: "C1",
-        state: "deny",
-        updatedAt: at.toISOString(),
-        updatedBy: "owner",
-      });
-      await store.putChannelBinding({
-        ...key,
-        applicationId: "dep-2",
-        channelId: "C2",
-        state: "allow",
-        updatedAt: at.toISOString(),
-        updatedBy: "owner",
-      });
+      await store.putChannelBindings(key, [
+        {
+          ...key,
+          channelId: "C1",
+          state: "deny",
+          updatedAt: at.toISOString(),
+          updatedBy: "owner",
+        },
+        {
+          ...key,
+          applicationId: "dep-2",
+          channelId: "C2",
+          state: "allow",
+          updatedAt: at.toISOString(),
+          updatedBy: "owner",
+        },
+      ]);
       expect(await store.getChannelBinding(key, "C1")).toMatchObject({
         state: "deny",
       });
@@ -147,6 +149,23 @@ function suite(name: string, fresh: () => Promise<Opened>) {
         state: "allow",
       });
       expect(await store.getChannelBinding(key, "C3")).toBeUndefined();
+      // Datalayer dropped C1 and changed C2: the set here follows.
+      await store.putChannelBindings(key, [
+        {
+          ...key,
+          applicationId: "dep-3",
+          channelId: "C2",
+          state: "allow",
+          updatedAt: at.toISOString(),
+          updatedBy: "owner",
+        },
+      ]);
+      expect(await store.getChannelBinding(key, "C1")).toBeUndefined();
+      expect(await store.getChannelBinding(key, "C2")).toMatchObject({
+        applicationId: "dep-3",
+      });
+      await store.putChannelBindings(key, []);
+      expect(await store.getChannelBinding(key, "C2")).toBeUndefined();
     });
 
     it("keeps a delivery's target, version, status, attempts and last error", async () => {
@@ -331,13 +350,15 @@ function suite(name: string, fresh: () => Promise<Opened>) {
     it("forgets every record of an uninstalled workspace", async () => {
       await reset();
       await installed(store);
-      await store.putChannelBinding({
-        ...key,
-        channelId: "C1",
-        state: "deny",
-        updatedAt: at.toISOString(),
-        updatedBy: "o",
-      });
+      await store.putChannelBindings(key, [
+        {
+          ...key,
+          channelId: "C1",
+          state: "deny",
+          updatedAt: at.toISOString(),
+          updatedBy: "o",
+        },
+      ]);
       await store.beginTurn(thread, "Ev1", at, 60_000);
       await store.holdPrompt({
         ...thread,

@@ -93,14 +93,16 @@ describe("resolving a Slack message to a person and an application (S-202)", () 
 
   it("refuses a channel the administrator turned off", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
-    await store.putChannelBinding({
-      appId: "A1",
-      channelId: "C1",
-      state: "deny",
-      teamId: "T1",
-      updatedAt: new Date(0).toISOString(),
-      updatedBy: "owner",
-    });
+    await store.putChannelBindings(promptOf(), [
+      {
+        appId: "A1",
+        channelId: "C1",
+        state: "deny",
+        teamId: "T1",
+        updatedAt: new Date(0).toISOString(),
+        updatedBy: "owner",
+      },
+    ]);
     const run = serviceOf(store);
     await run.service.handlePrompt(promptOf(), "B1");
     expect(texts(run.slack, "private")[0]).toContain(
@@ -111,15 +113,17 @@ describe("resolving a Slack message to a person and an application (S-202)", () 
 
   it("uses the channel's own application before the workspace default", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
-    await store.putChannelBinding({
-      appId: "A1",
-      applicationId: "dep-2",
-      channelId: "C1",
-      state: "allow",
-      teamId: "T1",
-      updatedAt: new Date(0).toISOString(),
-      updatedBy: "owner",
-    });
+    await store.putChannelBindings(promptOf(), [
+      {
+        appId: "A1",
+        applicationId: "dep-2",
+        channelId: "C1",
+        state: "allow",
+        teamId: "T1",
+        updatedAt: new Date(0).toISOString(),
+        updatedBy: "owner",
+      },
+    ]);
     const run = serviceOf(store);
     await run.service.handlePrompt(promptOf(), "B1");
     expect(run.agents.requests[0]?.applicationId).toBe("dep-2");

@@ -28,6 +28,12 @@ export interface AccountLinks {
   ): Promise<string | undefined>;
   /** End a Slack user's link (their Unlink, or they are gone from Slack). */
   unlink?(key: SlackInstallationKey, slackUserId: string): Promise<boolean>;
+  /**
+   * Read the installation's applications and channel rules from Datalayer
+   * again (S-403): before each prompt is routed, so a change there holds at
+   * the very next mention.
+   */
+  refreshAllowances?(key: SlackInstallationKey): Promise<void>;
 }
 
 /** The links the store keeps: the development seed, and tests. */
@@ -188,7 +194,11 @@ export class HostInstallations implements AccountLinks {
     return (await this.client.unlink(hostKey, slackUserId)) > 0;
   }
 
-  /** The applications Datalayer allows this installation, kept to show and choose from. */
+  /**
+   * The applications and channel rules Datalayer has for this installation,
+   * kept to route and to choose from: both replaced wholesale, so what
+   * Datalayer dropped is gone here too (S-403).
+   */
   async refreshAllowances(key: SlackInstallationKey): Promise<void> {
     const hostKey = await this.hostKeyOf(key);
     if (!hostKey) return;
@@ -211,15 +221,17 @@ export class HostInstallations implements AccountLinks {
     );
     if (self.defaultDeployment)
       await this.store.setDefaultApplication(key, self.defaultDeployment);
-    for (const channel of self.channels)
-      await this.store.putChannelBinding({
+    await this.store.putChannelBindings(
+      key,
+      self.channels.map((channel) => ({
         ...key,
         applicationId: channel.deployment || undefined,
         channelId: channel.id,
         state: channel.state,
         updatedAt: now,
         updatedBy: self.accountUid,
-      });
+      })),
+    );
   }
 
   /**
