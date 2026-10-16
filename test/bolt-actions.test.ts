@@ -64,13 +64,15 @@ const allow = [
 function boltOf(
   store: MemorySlackStore,
   deliveries?: DeliveryHandler,
-  agents: AgentClient<ThreadKey> = new FakeAgents(),
+  /** The agent client, when not the fake one: the shared HttpAgentClient (S-307). */
+  client?: AgentClient<ThreadKey>,
 ) {
   const slack = new FakeSlack();
+  const agents = new FakeAgents();
   const queue = new KeptQueue();
   const service = new SlackAgentService(
     store,
-    agents,
+    client ?? agents,
     slack,
     "https://datalayer.ai",
     new FakeLinks(
