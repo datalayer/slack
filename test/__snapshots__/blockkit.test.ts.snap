@@ -1,0 +1,1165 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Block Kit snapshots and limits (S-406) > App Home, connected and not 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": true,
+        "text": "Datalayer",
+        "type": "plain_text",
+      },
+      "type": "header",
+    },
+    {
+      "text": {
+        "text": "Ask a Datalayer application in a direct message, or invite \`@Datalayer\` to a channel and mention it.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "fields": [
+        {
+          "text": "*Account*
+Connected",
+          "type": "mrkdwn",
+        },
+        {
+          "text": "*Default application*
+Launch Review",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "*Applications you can ask from Slack*
+• Launch Review (default)
+• Desk — direct messages only",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "You asked 3 of 30 questions this hour.",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_unlink_account",
+          "confirm": {
+            "confirm": {
+              "text": "Unlink",
+              "type": "plain_text",
+            },
+            "deny": {
+              "text": "Keep it",
+              "type": "plain_text",
+            },
+            "text": {
+              "text": "@Datalayer stops answering you here until you connect again. Your Datalayer records stay in Datalayer.",
+              "type": "plain_text",
+            },
+            "title": {
+              "text": "Unlink your account?",
+              "type": "plain_text",
+            },
+          },
+          "text": {
+            "text": "Unlink my account",
+            "type": "plain_text",
+          },
+          "type": "button",
+        },
+        {
+          "action_id": "open_datalayer_slack_docs",
+          "text": {
+            "text": "Read the guide",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/docs/slack",
+        },
+        {
+          "action_id": "open_datalayer_support",
+          "text": {
+            "text": "Get help",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/docs/slack#troubleshooting",
+        },
+      ],
+      "type": "actions",
+    },
+    {
+      "elements": [
+        {
+          "text": "Datalayer reads direct messages and messages that mention the app. It does not read ambient channel history, and Slack data is not used to train models.",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+  ],
+  "type": "home",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > App Home, connected and not 2`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": true,
+        "text": "Datalayer",
+        "type": "plain_text",
+      },
+      "type": "header",
+    },
+    {
+      "text": {
+        "text": "Connect your Datalayer account before asking an application from Slack: Datalayer asks you to sign in, then to confirm. The link works once, for ten minutes; open this Home again for another.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "fields": [
+        {
+          "text": "*Account*
+Not connected",
+          "type": "mrkdwn",
+        },
+        {
+          "text": "*Default application*
+Launch Review",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "*Applications you can ask from Slack*
+• Launch Review (default)
+• Desk — direct messages only",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_connect_account",
+          "style": "primary",
+          "text": {
+            "text": "Connect your Datalayer account",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/link?code=one",
+        },
+        {
+          "action_id": "open_datalayer_slack_docs",
+          "text": {
+            "text": "Read the guide",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/docs/slack",
+        },
+        {
+          "action_id": "open_datalayer_support",
+          "text": {
+            "text": "Get help",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/docs/slack#troubleshooting",
+        },
+      ],
+      "type": "actions",
+    },
+    {
+      "elements": [
+        {
+          "text": "Datalayer reads direct messages and messages that mention the app. It does not read ambient channel history, and Slack data is not used to train models.",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+  ],
+  "type": "home",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a choice question: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "*Which?*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_ask_choice_0",
+          "text": {
+            "text": "Q1",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"a":"Q1","k":"Ev1"}",
+        },
+        {
+          "action_id": "datalayer_ask_choice_1",
+          "text": {
+            "text": "Q2",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"a":"Q2","k":"Ev1"}",
+        },
+      ],
+      "type": "actions",
+    },
+    {
+      "elements": [
+        {
+          "text": "_Waiting for your answer_",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Which?",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a failed turn: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Starting",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "_Could not finish: The connection to Datalayer was interrupted._",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_thread_menu",
+          "options": [
+            {
+              "text": {
+                "text": "Use another application",
+                "type": "plain_text",
+              },
+              "value": "use-another-application",
+            },
+            {
+              "text": {
+                "text": "Start over",
+                "type": "plain_text",
+              },
+              "value": "start-over",
+            },
+          ],
+          "type": "overflow",
+        },
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Could not finish: The connection to Datalayer was interrupted.",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a finished answer in noisy mode: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Done.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "✓ search  ✗ read_file",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_thread_menu",
+          "options": [
+            {
+              "text": {
+                "text": "Use another application",
+                "type": "plain_text",
+              },
+              "value": "use-another-application",
+            },
+            {
+              "text": {
+                "text": "Start over",
+                "type": "plain_text",
+              },
+              "value": "start-over",
+            },
+          ],
+          "type": "overflow",
+        },
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Done.",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a finished answer with a table and sources: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Option B is safer.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "\`\`\`Option  Risk
+------  ----
+A       High
+B       Low\`\`\`",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "See <https://datalayer.ai/notes|the review>.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "Sources: <https://datalayer.ai/notes|the review>",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_thread_menu",
+          "options": [
+            {
+              "text": {
+                "text": "Use another application",
+                "type": "plain_text",
+              },
+              "value": "use-another-application",
+            },
+            {
+              "text": {
+                "text": "Start over",
+                "type": "plain_text",
+              },
+              "value": "start-over",
+            },
+          ],
+          "type": "overflow",
+        },
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Option B is safer.
+| Option | Risk |
+|---|---|
+| A | High |
+| B | Low |
+See [the review](https://datalayer.ai/notes).",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a form answered in Datalayer: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "*Fill in the filing*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "This question is answered in Datalayer, where every field is shown: <https://datalayer.ai/hosts/open?code=abc|Answer in Datalayer>",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "text": "_Waiting for your answer_",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Fill in the filing",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a running answer with Stop: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Comparing the two options",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "_Using search_",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "accessibility_label": "Stop run t1",
+          "action_id": "datalayer_stop_turn",
+          "style": "danger",
+          "text": {
+            "text": "Stop",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"e":"Ev1","r":"t1","s":"S1"}",
+        },
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Comparing the two options",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a stopped turn: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "elements": [
+        {
+          "text": "_Stopped_",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_thread_menu",
+          "options": [
+            {
+              "text": {
+                "text": "Use another application",
+                "type": "plain_text",
+              },
+              "value": "use-another-application",
+            },
+            {
+              "text": {
+                "text": "Start over",
+                "type": "plain_text",
+              },
+              "value": "start-over",
+            },
+          ],
+          "type": "overflow",
+        },
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Stopped",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a streamed answer's stop blocks: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "elements": [
+        {
+          "text": "Sources: <https://datalayer.ai/notes|the review>",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_thread_menu",
+          "options": [
+            {
+              "text": {
+                "text": "Use another application",
+                "type": "plain_text",
+              },
+              "value": "use-another-application",
+            },
+            {
+              "text": {
+                "text": "Start over",
+                "type": "plain_text",
+              },
+              "value": "start-over",
+            },
+          ],
+          "type": "overflow",
+        },
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Option B is safer.
+| Option | Risk |
+|---|---|
+| A | High |
+| B | Low |
+See [the review](https://datalayer.ai/notes).",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a text question in a channel: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "*Which quarter?*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "Answer in this thread by mentioning @Datalayer with your answer.",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "text": "_Waiting for your answer_",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Which quarter?",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > a text question in a direct message: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "*Which quarter?*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "Reply in this thread to answer.",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "text": "_Waiting for your answer_",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_open_in_datalayer",
+          "text": {
+            "text": "Open in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Which quarter?",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > an approval card reviewed in Datalayer only: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Desk wants to delete something: send_email",
+        "type": "plain_text",
+      },
+      "type": "header",
+    },
+    {
+      "elements": [
+        {
+          "text": "Asked 2026-10-07T10:00:00Z · delete",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "text": {
+        "text": "*To*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "release@example.com",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "*Subject*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "Launch decision",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "*Body*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "We go with option B.",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "Deleting is decided in Datalayer. Withheld from Slack: /token. A delete is decided in Datalayer.",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "block_id": "approval:ap-1",
+      "elements": [
+        {
+          "action_id": "datalayer_approval_review",
+          "text": {
+            "text": "Review in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "offersDecision": false,
+  "text": "Desk wants to delete something: send_email",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > an approval card that offers the decision: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Desk wants to send something: send_email",
+        "type": "plain_text",
+      },
+      "type": "header",
+    },
+    {
+      "elements": [
+        {
+          "text": "Asked 2026-10-07T10:00:00Z · send",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "text": {
+        "text": "*To*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "release@example.com",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "*Subject*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "Launch decision",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "*Body*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "text": "We go with option B.",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "block_id": "approval:ap-1",
+      "elements": [
+        {
+          "action_id": "datalayer_approval_approve",
+          "style": "primary",
+          "text": {
+            "text": "Approve",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"a":"ap-1","d":"0000000000000000000000000000000000000000000000000000000000000000","p":"dep-1"}",
+        },
+        {
+          "action_id": "datalayer_approval_decline",
+          "style": "danger",
+          "text": {
+            "text": "Decline",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"a":"ap-1","d":"0000000000000000000000000000000000000000000000000000000000000000","p":"dep-1"}",
+        },
+        {
+          "action_id": "datalayer_approval_review",
+          "text": {
+            "text": "Review in Datalayer",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://datalayer.ai/hosts/open?code=abc",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "offersDecision": true,
+  "text": "Desk wants to send something: send_email",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > an approved card: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Approved by <@U1>: send_email",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "<https://datalayer.ai/hosts/open?code=abc|Open in Datalayer>",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+  ],
+  "text": "Approved by <@U1>: send_email",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > an expired card: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Expired: send_email",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "<https://datalayer.ai/hosts/open?code=abc|Open in Datalayer>",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+  ],
+  "text": "Expired: send_email",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > the application selector, in a channel and as a switch 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Which application should answer in this thread?",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_select_application",
+          "options": [
+            {
+              "text": {
+                "text": "Launch Review",
+                "type": "plain_text",
+              },
+              "value": "{"app":"dep-1","ev":"Ev1"}",
+            },
+          ],
+          "placeholder": {
+            "text": "Choose an application",
+            "type": "plain_text",
+          },
+          "type": "static_select",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Choose the application that answers in this thread.",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > the application selector, in a channel and as a switch 2`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Which application should answer next in this thread? A new session opens; the earlier one stays in Datalayer.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_select_application",
+          "options": [
+            {
+              "text": {
+                "text": "Launch Review",
+                "type": "plain_text",
+              },
+              "value": "{"app":"dep-1","ev":"","sw":true,"c":"D1","t":"1.0"}",
+            },
+            {
+              "text": {
+                "text": "Desk",
+                "type": "plain_text",
+              },
+              "value": "{"app":"dep-2","ev":"","sw":true,"c":"D1","t":"1.0"}",
+            },
+          ],
+          "placeholder": {
+            "text": "Choose an application",
+            "type": "plain_text",
+          },
+          "type": "static_select",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Choose the application that answers in this thread.",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > the channel's waiting line: within Slack's limits, with a plain-text fallback 1`] = `
+{
+  "text": "Waiting for <@U1>'s decision on send_email: it was sent to them privately.",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > the confirmation modals 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Approve *send_email* exactly as the card shows it. It is decided once, as you, and recorded in Datalayer.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+  ],
+  "callback_id": "datalayer_approval_confirm",
+  "close": {
+    "text": "Cancel",
+    "type": "plain_text",
+  },
+  "private_metadata": "{"a":"ap-1","app":"A1","approve":true,"d":"sha256:abc","p":"dep-1","team":"T1"}",
+  "submit": {
+    "text": "Approve",
+    "type": "plain_text",
+  },
+  "title": {
+    "text": "Approve?",
+    "type": "plain_text",
+  },
+  "type": "modal",
+}
+`;
+
+exports[`Block Kit snapshots and limits (S-406) > the confirmation modals 2`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Decline *send_email*. It is decided once, as you, and recorded in Datalayer.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "block_id": "datalayer_approval_note",
+      "element": {
+        "action_id": "note",
+        "max_length": 1000,
+        "multiline": true,
+        "type": "plain_text_input",
+      },
+      "label": {
+        "text": "Why (optional)",
+        "type": "plain_text",
+      },
+      "optional": true,
+      "type": "input",
+    },
+  ],
+  "callback_id": "datalayer_approval_confirm",
+  "close": {
+    "text": "Cancel",
+    "type": "plain_text",
+  },
+  "private_metadata": "{"a":"ap-1","app":"A1","approve":false,"d":"sha256:abc","p":"dep-1","team":"T1"}",
+  "submit": {
+    "text": "Decline",
+    "type": "plain_text",
+  },
+  "title": {
+    "text": "Decline?",
+    "type": "plain_text",
+  },
+  "type": "modal",
+}
+`;
