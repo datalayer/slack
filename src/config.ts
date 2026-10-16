@@ -12,7 +12,7 @@ const schema = z
     DATALAYER_SLACK_TRANSPORT: z.enum(["http", "socket"]).default("http"),
     DATALAYER_SLACK_STORE: z.enum(["memory", "postgres"]).default("memory"),
     /**
-     * What this process does (plans/SLACK.md §10): `ingress` serves Slack's
+     * What this process does: `ingress` serves Slack's
      * signed requests and persists them, `worker` works the durable queue
      * and reads the outbox, `all` both (one process: development, tests).
      * Production scales two ingress replicas and the workers apart.

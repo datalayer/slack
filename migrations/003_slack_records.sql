@@ -1,6 +1,6 @@
 BEGIN;
 
--- plans/SLACK.md §5: the Slack-side records besides installations, links and
+-- The Slack-side records besides installations, links and
 -- thread bindings. Datalayer stays the authority: an allowance is what
 -- `GET /apps/hosts/self` answered, kept to show and choose from.
 

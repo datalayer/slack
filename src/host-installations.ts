@@ -69,8 +69,8 @@ export type HostInstallationsOptions = Readonly<{
 }>;
 
 /**
- * Each workspace as a Datalayer host installation (plans/SLACK.md §3.1,
- * §4.3): bound at install with the code the Ship card passed, its key kept
+ * Each workspace as a Datalayer host installation: bound at install with
+ * the code the Ship card passed, its key kept
  * encrypted beside the Slack installation and used for every call of that
  * workspace; its people linked at Datalayer; ended at Datalayer when Slack
  * uninstalls it.

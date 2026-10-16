@@ -9,7 +9,7 @@ import type { SlackStore } from "./store.js";
 
 /**
  * Refreshed this long before it expires: Bolt's own margin, so a token read by
- * the worker and one read by Bolt's `authorize` agree (§12.2, token refresh).
+ * the worker and one read by Bolt's `authorize` agree (token refresh).
  */
 export const REFRESH_BEFORE_MS = 2 * 60 * 60 * 1000;
 

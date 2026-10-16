@@ -68,7 +68,7 @@ export type HomeUsage = Readonly<{
 }>;
 
 /**
- * @Datalayer's Home (plans/SLACK.md §3.1, S-104): whether this person's
+ * @Datalayer's Home (S-104): whether this person's
  * Datalayer account is connected; the applications this workspace allows
  * from Slack and the default; the privacy line; *Connect your Datalayer
  * account* (a fresh one-use link) or *Unlink my account*; the guide and

@@ -1,6 +1,6 @@
 /**
  * Slack's Block Kit limits, checked on every surface @Datalayer builds
- * (plans/SLACK.md §12.1 Rendering, S-406): what Slack refuses or truncates,
+ * (Rendering, S-406): what Slack refuses or truncates,
  * and what a screen reader or a notification needs — a plain-text fallback
  * on every message and alt text on every image. Limits from the Block Kit
  * reference (blocks, composition objects, block elements).

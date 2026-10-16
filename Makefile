@@ -1,7 +1,7 @@
 .PHONY: check dev-socket image push
 
 # The image's tag: bump it for every push, never overwrite a pushed tag.
-# 0.1.0 pushed 16 October 2026 from 997ad41; 0.1.1 from 698b44b (plans/SLACK.md A-17, S-101).
+# 0.1.0 pushed 16 October 2026 from 997ad41; 0.1.1 from 698b44b (A-17, S-101).
 # 0.1.2: SLACK round 2 — streaming bounds and fallback, 429s rejected and retried (S-206); the turn lock on a
 #        thread's first turn, heartbeats and lease renewal (S-207); App Home's starters (S-104); Open in
 #        Datalayer only through a handoff (S-305); dead letters (S-405); migrations 006–007.
@@ -38,7 +38,7 @@ dev-socket:
 	}
 	@DATALAYER_DEV_HOST_TOKEN="$$DATALAYER_API_KEY" npm run dev:socket
 
-# Create or update a Slack app from manifests/<env>.yaml (plans/SLACK.md §15.2):
+# Create or update a Slack app from manifests/<env>.yaml:
 # rotates the configuration token in the prod1 rc first; on create, the ids and
 # secrets go to the rc, and with SECRET=namespace/name the signing and client
 # secrets also go to that Secret (kubectl's current context).

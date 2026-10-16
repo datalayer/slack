@@ -47,7 +47,7 @@ export const NOT_A_MEMBER_HOME =
 export const SEND_EDITED_ACTION = "datalayer_send_edited";
 
 /**
- * The work behind the acknowledgement (§7.2): each job of the durable queue,
+ * The work behind the acknowledgement: each job of the durable queue,
  * and each action once acknowledged. Business rules stay here, outside the
  * Bolt listeners, so fixtures drive them.
  */
@@ -65,7 +65,7 @@ export class SlackWorker {
       ) => Promise<void>;
       /** Where App Home reads the default application's starters (S-104). */
       starters?: StarterSource;
-      /** One span per job, its ids pseudonymous (§12.2). */
+      /** One span per job, its ids pseudonymous. */
       tracer?: Tracer;
     }> = {},
   ) {}

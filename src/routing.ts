@@ -31,7 +31,7 @@ export type SelectorValue = Readonly<{
   t?: string;
 }>;
 
-/** Why a turn did not start: each with its own private repair (§2 rule 10). */
+/** Why a turn did not start: each with its own private repair. */
 export type Refusal =
   | "not-installed"
   | "external"
@@ -63,7 +63,7 @@ const visibilityOf = (
 
 /**
  * Resolve a Slack message to the person and application its turn runs as
- * (plans/SLACK.md §8, S-202): active installation → not a shared channel →
+ * (S-202): active installation → not a shared channel →
  * linked person → application (the thread's own, else an explicit choice,
  * else the channel's, else the workspace default) → the application allowed
  * here and in this kind of conversation. Datalayer's exchange then checks
@@ -89,7 +89,7 @@ export class TurnRouting {
       return { ok: false, refusal: "not-installed" };
 
     // Slack Connect and people of another workspace: identity is ambiguous,
-    // so v1 fails closed (§8).
+    // so v1 fails closed.
     if (
       prompt.isExtShared ||
       // In an Enterprise Grid organization, a member of another of its

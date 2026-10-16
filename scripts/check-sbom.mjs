@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 /**
- * The SBOM CI writes (plans/SLACK.md S-502, §10): a CycloneDX document of the
+ * The SBOM CI writes (S-502): a CycloneDX document of the
  * production dependencies, which must name each of package.json's
  * `dependencies` at the exact version installed. Run after
  * `cyclonedx-npm --omit dev --output-file sbom.cdx.json`.

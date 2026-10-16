@@ -1,6 +1,6 @@
 /**
  * Slack's rate limits, kept before a call rather than discovered after it
- * (plans/SLACK.md §7.2, S-206): calls of one method to one channel are
+ * (S-206): calls of one method to one channel are
  * spaced, and a 429 waits as long as Slack's `Retry-After` says, then tries
  * again a bounded number of times. Never one call per model token.
  */

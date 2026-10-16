@@ -1,7 +1,7 @@
 import { pseudonym } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 /**
- * Slack's side of the shared observability (plans/SLACK.md §9, §12.2): what
+ * Slack's side of the shared observability: what
  * its pseudonyms are salted with, and its span attribute names. Logs,
  * redaction, audit and spans are the shared host kit's.
  */

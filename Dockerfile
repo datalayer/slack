@@ -1,9 +1,9 @@
-# @Datalayer for Slack: the Bolt service (plans/SLACK.md §10, S-101).
+# @Datalayer for Slack: the Bolt service (S-101).
 # Built from a clean export of this repository (git archive), never a
 # working tree. The exact versions of package.json are installed; no
 # lockfile is read (the monorepo keeps none). What runs is one esbuild
-# bundle of the service and agent-runtimes' lib/portable (plans/DISCORD.md
-# §4.2, DC-004): the build stage fetches the pinned agent-runtimes
+# bundle of the service and agent-runtimes' lib/portable (DC-004):
+# the build stage fetches the pinned agent-runtimes
 # release's lib/portable only, bundles and gates it; the runtime stage
 # installs the bundle's externals only.
 

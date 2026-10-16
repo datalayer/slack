@@ -4,7 +4,7 @@ import type { ThreadKey } from "./domain.js";
 import { escapeSlack } from "./presentation.js";
 
 /**
- * Optional thread context (plans/SLACK.md §6.3, ADR 0003, S-401, S-402): off
+ * Optional thread context (ADR 0003, S-401, S-402): off
  * by default and behind `DATALAYER_SLACK_THREAD_CONTEXT`. When an
  * administrator turns it on for an installation that granted the history
  * scopes of the optional manifest variant (a separate reauthorization), a

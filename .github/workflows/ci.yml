@@ -31,7 +31,7 @@ jobs:
       # No lockfile is kept (the monorepo's rule): the exact versions of
       # package.json are installed. agent-runtimes is an optional peer, never
       # installed whole: its pinned release's lib/portable is extracted after
-      # the install (plans/DISCORD.md §4.2, DC-004).
+      # the install (DC-004).
       - run: npm install --no-audit --no-fund
       - name: agent-runtimes' lib/portable (config.agentRuntimesVersion)
         run: npm run fetch:agent-runtimes
@@ -53,7 +53,7 @@ jobs:
         run: npm run bundle
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
-      # The SBOM of the production dependencies (S-502, §10): CycloneDX,
+      # The SBOM of the production dependencies (S-502): CycloneDX,
       # checked to name each of package.json's dependencies, kept 90 days.
       - name: SBOM (CycloneDX)
         run: |

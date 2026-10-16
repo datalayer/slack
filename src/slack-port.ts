@@ -61,7 +61,7 @@ export interface SlackPort {
   ): Promise<{ channelId: string; ts: string }>;
   /**
    * Said to one person only: an ephemeral message in a channel thread, a
-   * direct message otherwise (plans/SLACK.md §8: setup UI is private).
+   * direct message otherwise (setup UI is private).
    */
   postPrivate(
     key: SlackInstallationKey | ThreadKey,
@@ -101,7 +101,7 @@ export const isDirectChannel = (channelId: string): boolean =>
   channelId.startsWith("D");
 
 /**
- * What `users.info` says of a member, read as @Datalayer decides it (§8):
+ * What `users.info` says of a member, read as @Datalayer decides it:
  * Slack's flags, and a home team other than the installation's. In an
  * Enterprise Grid organization a member of another of its workspaces has
  * another `team_id` but the installation's enterprise id: not external.

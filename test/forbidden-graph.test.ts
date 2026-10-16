@@ -6,8 +6,8 @@ import { bundle } from "../scripts/bundle.js";
 import { forbiddenInSources } from "../scripts/forbidden-sources.js";
 
 /**
- * What the service runs is one esbuild bundle (plans/DISCORD.md §4.2,
- * DC-004; SLACK S-005): its sources and agent-runtimes' `lib/portable`,
+ * What the service runs is one esbuild bundle (DC-004, S-005):
+ * its sources and agent-runtimes' `lib/portable`,
  * nothing of Jupyter, React or another package; its dependencies external.
  * Bundled here in memory (`write: false`): analysis, nothing written.
  */

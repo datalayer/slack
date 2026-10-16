@@ -178,7 +178,7 @@ describe("Datalayer agent client", () => {
         .filter((key) => key !== "user_token")
         .sort(),
     );
-    // Where the turn comes from, on the turn itself (DISCORD DC-006, §4.4).
+    // Where the turn comes from, on the turn itself (DC-006).
     const provenance = (start?.body as { provenance: object }).provenance;
     expect(provenance).toEqual({
       host_kind: "slack",

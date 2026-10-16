@@ -2,7 +2,7 @@
 
 - **Status:** accepted on 7 October 2026 (services 43a2bb58, slack cf14c74).
   Recorded on 16 October 2026 (S-002).
-- **Plan:** `plans/SLACK.md` §4.3 (1), §8 and S-203.
+- **Box:** S-203.
 
 ## Context
 

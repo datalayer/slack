@@ -223,7 +223,7 @@ export class BoltSlackPort implements SlackPort {
 }
 
 /**
- * The bot scopes (§6.2): the baseline, `assistant:write` for the direct
+ * The bot scopes: the baseline, `assistant:write` for the direct
  * message's suggested prompts (S-104) and `users:read` to tell guests and
  * external people apart (S-209), both decided by the user 16 October 2026.
  */
@@ -334,7 +334,7 @@ function boltApp(config: Config, options: BoltAppOptions): App {
     logLevel:
       config.NODE_ENV === "development" ? LogLevel.DEBUG : LogLevel.INFO,
     // Over HTTP, an event is acknowledged once its listener persisted it
-    // (§7.1, 4–5); listeners never call Slack or Datalayer.
+    // (4–5); listeners never call Slack or Datalayer.
     processBeforeResponse: config.DATALAYER_SLACK_TRANSPORT === "http",
     redirectUri: oauth ? config.SLACK_REDIRECT_URI : undefined,
     signingSecret:
@@ -349,7 +349,7 @@ function boltApp(config: Config, options: BoltAppOptions): App {
 export type SlackListenerParts = Readonly<{
   deliveries?: DeliveryHandler;
   hosts?: HostInstallations;
-  /** Whether this process works the queue: not an ingress-only replica (§10). */
+  /** Whether this process works the queue: not an ingress-only replica. */
   consume?: boolean;
   /** The workspace's bot token, refreshed when it rotates (S-102). */
   tokens?: BotTokens;
@@ -400,7 +400,7 @@ export function registerSlackListeners(
   if (parts.consume ?? true) queue.start((job) => worker.handle(job));
 
   // Events: normalized without a network call, persisted once by their
-  // event id, then acknowledged (processBeforeResponse for HTTP, §7.1).
+  // event id, then acknowledged (processBeforeResponse for HTTP).
   const enqueueEvent = async (body: EventEnvelope, logger: Logger) => {
     const ingress = ingressOf(body, config.SLACK_BOT_USER_ID);
     const key = body.event_id;

@@ -3,7 +3,7 @@ BEGIN;
 -- The shared tables (slack_event_claims, slack_jobs, slack_usage,
 -- slack_payload_access, slack_job_replays) are the host kit's:
 -- applyHostSchema(db, "slack") from @datalayer/agent-runtimes/lib/portable/hosts
--- runs before these files (scripts/migrate.ts; plans/DISCORD.md DC-004).
+-- runs before these files (scripts/migrate.ts, DC-004).
 
 CREATE TABLE IF NOT EXISTS slack_installations (
   app_id text NOT NULL,

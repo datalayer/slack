@@ -8,7 +8,7 @@ import {
 import type { TurnRequest } from "./domain.js";
 
 /**
- * What is Slack's own in a turn (plans/SLACK.md §4.3; DISCORD DC-004): the
+ * What is Slack's own in a turn (DC-004): the
  * session uid a thread derives, the place Datalayer checks the channel
  * policy against, and the target handed back with every delivery. The
  * exchange, the session API and the stream are the shared host kit's
@@ -57,8 +57,8 @@ export function targetOf(request: TurnRequest): Record<string, unknown> {
 }
 
 /**
- * Where a turn comes from, on the turn itself (plans/DISCORD.md §4.3, §4.4;
- * SLACK S-204): Slack, the place, the thread and the Slack event.
+ * Where a turn comes from, on the turn itself (S-204):
+ * Slack, the place, the thread and the Slack event.
  */
 export function provenanceOf(request: TurnRequest): TurnProvenance {
   return {

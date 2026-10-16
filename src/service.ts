@@ -126,7 +126,7 @@ function slackErrorOf(error: unknown): string | undefined {
 }
 
 /**
- * The turn worker (plans/SLACK.md §7.2, S-202 to S-207): resolve who asks and
+ * The turn worker (S-202 to S-207): resolve who asks and
  * which application answers; one turn at a time per thread (a second prompt
  * is refused privately while one runs); the session created or resumed with
  * the speaker and Slack provenance, idempotent by the Slack event id; its

@@ -1,6 +1,6 @@
 # Inventory of the contracts @Datalayer uses
 
-S-001 of `plans/SLACK.md` (landing `plans/SLACK.md`, §4.3, §11). Written on
+S-001. Written on
 16 October 2026, and checked against the services source on
 `feat/earthdata-toolset` (ai-agents), agent-runtimes on `feat/app-avatar` and
 this repo's `test/contracts/contracts.json`. Every route below appears in that
@@ -131,8 +131,8 @@ The stream is server-sent AG-UI events. The adapter reads:
 
 The portable reducer of these events is `src/portable/conversation.ts` in
 agent-runtimes, shared by the web chat and Datalayer Mobile. **Decision
-(S-005, §4.2):** this adapter keeps its own reduction to the Slack semantic
-events. The reasons are in §8. The versioned semantic contract is
+(S-005):** this adapter keeps its own reduction to the Slack semantic
+events. The reasons are in section 8. The versioned semantic contract is
 `test/contracts/semantic-events.json`.
 
 ## 5. Approval presentation and decision (ai-agents)
@@ -181,14 +181,14 @@ The adapter's side is in `src/deliveries.ts`: the route
 - **Plane conventions:** services are Helm releases installed by
   `k8s/services/plane/datalayer_plane/sbin/up.sh`, where the image tag is the
   real pin. The cluster runs a CloudNativePG operator (`datalayer-postgresql`),
-  which this service's Postgres store and queue target (§15, 1). OTEL goes to
+  which this service's Postgres store and queue target. OTEL goes to
   `datalayer-otel-otel-collector-svc.datalayer-otel:4317`. Secrets come from
   the rc files and are never created by an agent.
 
 ## 8. Reuse boundary (S-005, DISCORD DC-004)
 
-**The shared host code lives in agent-runtimes' `src/portable/hosts`** (the
-user's decision of 16 October 2026; plans/DISCORD.md §4.2, §15). What any chat
+**The shared host code lives in agent-runtimes' `src/portable/hosts`** (the user's decision of 16 October 2026).
+What any chat
 host shares — the host contracts and `contracts.json`, the ai-agents host
 client, the agent client over the session API (with Slack's `HostShape`
 injected: `src/agent-client.ts`), `hostSessionUid`, the semantic events and
@@ -248,4 +248,4 @@ Reused only as conventions:
 | Session API, AG-UI stream, idempotent turns, Stop                  | agent-runtimes                          |
 | Identity, organizations, people                                    | IAM (`k8s/services`), read by ai-agents |
 | Slack ingress, store, queue, rendering, App Home, OAuth            | this repo                               |
-| `/docs/slack`, the Ship → Slack card, `/hosts/link`                | the landing (`landings/datalayer/ui`)   |
+| `/docs/slack`, the Ship → Slack card, `/hosts/link`                | the landing (datalayer.ai)              |

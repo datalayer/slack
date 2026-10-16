@@ -1,7 +1,6 @@
 # ADR 0001: Bolt for JavaScript, signed HTTPS and a durable queue
 
 - **Status:** accepted on 7 October 2026. Recorded on 16 October 2026 (S-002).
-- **Plan:** `plans/SLACK.md` §4 and §7.1.
 
 ## Context
 
@@ -33,7 +32,7 @@ that can run for minutes and needs approvals. The service has to:
    (`slack_jobs`, `FOR UPDATE SKIP LOCKED`, exponential retry, dead after five
    attempts, a five-minute lease that is reclaimed).
 4. **Postgres from the plane's CloudNativePG operator** holds the store and the
-   queue: one infrastructure family the plane already runs (§15, 1).
+   queue: one infrastructure family the plane already runs.
 
 ## Rejected alternatives
 

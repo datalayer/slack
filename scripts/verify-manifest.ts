@@ -1,6 +1,6 @@
 import { drift } from "./manifest.js";
 
-// CI's manifest gate (plans/SLACK.md S-107): every committed manifest is
+// CI's manifest gate (S-107): every committed manifest is
 // valid and byte for byte what the template renders.
 const problems = await drift(new URL("../", import.meta.url));
 if (problems.length) {

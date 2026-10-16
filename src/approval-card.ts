@@ -91,7 +91,7 @@ const ACTION_WORDS: Record<ApprovalPresentation["action_class"], string> = {
 };
 
 /**
- * An approval as a Block Kit card (plans/SLACK.md §3.4, S-302): who asks,
+ * An approval as a Block Kit card (S-302): who asks,
  * what, and every material value whole — a value longer than a block is
  * continued in the next, never cut. *Approve* and *Decline* are offered only
  * when the server says a host may decide it (`hostMayDecide`) and every
@@ -215,7 +215,7 @@ const OUTCOME_WORDS: Record<string, string> = {
   rejected: "Declined",
 };
 
-/** A decided card: its outcome, and no buttons on any terminal state (§3.4). */
+/** A decided card: its outcome, and no buttons on any terminal state. */
 export function decidedCard(input: {
   decidedBySlackUserId?: string;
   reviewUrl: string;
@@ -244,7 +244,7 @@ export function decidedCard(input: {
   };
 }
 
-/** What a channel thread shows while its approval is decided privately (§3.4). */
+/** What a channel thread shows while its approval is decided privately. */
 export function waitingLine(
   slackUserId: string,
   toolName: string,

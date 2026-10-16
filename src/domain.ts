@@ -71,8 +71,8 @@ export type ThreadBinding = ThreadKey &
   }>;
 
 /**
- * An application the installation allows (plans/SLACK.md §5,
- * `slack_app_allowance`): Datalayer's allowlist (`GET /apps/hosts/self`),
+ * An application the installation allows (`slack_app_allowance`):
+ * Datalayer's allowlist (`GET /apps/hosts/self`),
  * kept here to show and choose from — never what authorizes a turn; the
  * exchange decides that at every turn.
  */

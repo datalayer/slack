@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { z } from "zod";
 
 /**
- * The Slack app manifests as code (plans/SLACK.md S-006, S-107, §6.1).
+ * The Slack app manifests as code (S-006, S-107).
  *
  * `app-manifest.template.yaml` is rendered once per environment into
  * `manifests/<name>.yaml`. A rendered manifest is parsed as YAML and held to

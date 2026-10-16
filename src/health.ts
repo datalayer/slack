@@ -7,7 +7,7 @@ import type { CustomRoute } from "@slack/bolt";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 /**
- * Liveness and readiness as Bolt routes (plans/SLACK.md §10, S-101): the
+ * Liveness and readiness as Bolt routes (S-101): the
  * shared host kit's `/healthz` and `/readyz`, served by Bolt's receiver.
  */
 export function healthRoutes(checks: ReadinessChecks): CustomRoute[] {

@@ -19,7 +19,7 @@ import { MemorySlackStore, type SlackStore } from "../src/store.js";
 import { testDatabase } from "./support/postgres.js";
 
 /**
- * The §5 Slack-side records (S-004), on the memory store always and on
+ * The Slack-side records (S-004), on the memory store always and on
  * Postgres when `SLACK_TEST_DATABASE_URL` names a throwaway database:
  * every migration applied, then the same cases.
  */

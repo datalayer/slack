@@ -6,7 +6,7 @@
 
 `@Datalayer` brings an existing Datalayer LOOP application or running agent into a Slack direct message or channel thread. Slack is a host of the existing session and approval contracts; it is not a separate agent runtime.
 
-The implementation follows the delivery plan in `landings/datalayer/ui/plans/SLACK.md`.
+User and administrator documentation is at [datalayer.ai/docs/slack](https://datalayer.ai/docs/slack).
 
 ## Current implementation
 
@@ -29,7 +29,7 @@ The repository currently provides the executable Phase 0/early Phase 2 foundatio
 - uninstall cleanup: `app_uninstalled` and `tokens_revoked` end the installation at Datalayer (`DELETE /api/ai-agents/v1/apps/hosts/self`), then remove its key, credentials, bindings and cards; late queued work and deliveries are dropped;
 - CI checks that prevent Jupyter, JupyterLab, Lumino, React DOM and Datalayer Jupyter imports.
 
-Added on 16 October 2026 (plans/SLACK.md round 1):
+Added on 16 October 2026 (round 1):
 
 - **ingress**: each signed event is normalized without a network call (`src/ingress.ts`) and persisted once by its event id, with the job, in one transaction. It is acknowledged only after that (`processBeforeResponse`). Bolt checks the signature over the raw body. A timestamp more than five minutes away, in the past or the future, is refused in front of Bolt (`src/health.ts`). Bot, self, unsupported-subtype and channel (non-mention) messages are ignored.
 - **the turn worker** (`src/service.ts`, `src/routing.ts`, `src/worker.ts`):

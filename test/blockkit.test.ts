@@ -28,7 +28,7 @@ import { CONTRACTS_PATH } from "./support/contracts.js";
 
 /**
  * Block Kit snapshots of every message, modal and App Home @Datalayer
- * builds (plans/SLACK.md §12.1 Rendering, S-406), each held to Slack's
+ * builds (Rendering, S-406), each held to Slack's
  * limits, with a plain-text fallback on every message and alt text on
  * every image. A change to what Slack shows changes a snapshot here.
  */

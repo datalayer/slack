@@ -10,8 +10,8 @@ import {
 
 /**
  * Creates or updates a Slack app from manifests/<env>.yaml through Slack's App
- * Manifest API (plans/SLACK.md §15.2; the user, 16 October 2026: the chart
- * creates the Secret, then "a script to update the slack app").
+ * Manifest API (the user, 16 October 2026: the chart creates the Secret,
+ * then "a script to update the slack app").
  *
  * The configuration token and its refresh token come from the rc
  * (DATALAYER_SLACK_CONFIG_TOKEN, DATALAYER_SLACK_CONFIG_REFRESH_TOKEN): the

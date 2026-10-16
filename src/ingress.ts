@@ -2,8 +2,8 @@ import type { IncomingPrompt } from "./domain.js";
 import { slackThreadKey } from "./service.js";
 
 /**
- * What one signed Slack Events API envelope means (plans/SLACK.md §7.1,
- * S-201, S-209), decided without any network call so the listener only
+ * What one signed Slack Events API envelope means (S-201, S-209),
+ * decided without any network call so the listener only
  * persists and acknowledges. The installation comes from the signed body's
  * `api_app_id`, `enterprise_id` and `team_id` — never a query parameter.
  */

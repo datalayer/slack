@@ -1,6 +1,6 @@
 # ADR 0003: Mention-only context by default, thread context optional and off
 
-- **Status:** accepted on 7 October 2026 (plan §2.1, §6.3). Recorded on
+- **Status:** accepted on 7 October 2026. Recorded on
   16 October 2026 (S-002).
 
 ## Context
@@ -30,12 +30,12 @@ did not choose.
 ## Rejected alternatives
 
 - **Context on by default.** It would read messages that nobody addressed to
-  Datalayer. Slack's guidelines and the plan's rule 1 ("the mention is an
+  Datalayer. Slack's guidelines and @Datalayer's first rule ("the mention is an
   invocation, not surveillance") forbid it.
 - **`search:read` or bulk history ingestion.** These are disproportionate, and
   they cannot be scoped to the thread that was invoked.
 - **Fetching context with a user token.** That would be impersonation through
-  user tokens, which the plan rules out.
+  user tokens, which @Datalayer rules out.
 
 ## Consequences
 

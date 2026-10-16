@@ -253,7 +253,7 @@ describe("App Home and unlinking (S-103, S-104)", () => {
   });
 });
 
-describe("uninstall races (S-106, §12.1 persistence)", () => {
+describe("uninstall races (S-106, persistence)", () => {
   it("drops a queued mention, an action and a delivery after app_uninstalled", async () => {
     const store = await installedStore({ allow, defaultApplication: "dep-1" });
     const { agents, slack, worker } = workerOf(store);
@@ -322,7 +322,7 @@ describe("uninstall races (S-106, §12.1 persistence)", () => {
   });
 });
 
-describe("tracing a job (S-101, §12.2)", () => {
+describe("tracing a job (S-101)", () => {
   it("spans each job by its kind with pseudonymous ids, never its words", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
     const { lines, logger } = keptLogger();

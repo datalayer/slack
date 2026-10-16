@@ -134,7 +134,7 @@ describe("typed approval renderers (S-302)", () => {
     expect(actions(odd)).toEqual([REVIEW_ACTION]);
   });
 
-  it("decides mail only: a send that is not mail goes to Datalayer (§15, 5)", () => {
+  it("decides mail only: a send that is not mail goes to Datalayer", () => {
     const message = of({ tool_name: "send_message" });
     expect(renderApproval(message).renderer).toBe("none");
     expect(actions(message)).toEqual([REVIEW_ACTION]);

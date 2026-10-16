@@ -72,8 +72,8 @@ export type DecisionOutcome =
   | "not-linked";
 
 /**
- * Datalayer's deliveries to this host (plans/SLACK.md §4.3, 3; S-301 to
- * S-304): an approval asked in a session mapped to a Slack thread becomes a
+ * Datalayer's deliveries to this host (S-301 to S-304):
+ * an approval asked in a session mapped to a Slack thread becomes a
  * card — in the thread of a direct message, or privately to its person with
  * only a waiting line in a channel thread; a decision taken anywhere updates
  * every card of it; a finished turn finishes the thread's status. Each
@@ -202,7 +202,7 @@ export class DeliveryHandler {
       });
       return;
     }
-    // A channel: the arguments go to their person only (§2 rule 5, S-303).
+    // A channel: the arguments go to their person only (S-303).
     const direct = await this.slack.postDirect(
       installation,
       target.userId,
