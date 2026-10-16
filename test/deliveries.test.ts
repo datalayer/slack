@@ -6,7 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import { slackShape } from "../src/agent-client.js";
 import { APPROVE_ACTION } from "../src/approval-card.js";
-import { DeliveryHandler, deliverySinkOf } from "../src/deliveries.js";
+import {
+  DeliveryHandler,
+  deliverySinkOf,
+  OPEN_LINK_ACTION,
+  OPEN_WORDS,
+} from "../src/deliveries.js";
+import { OPEN_ACTION, openValueOf } from "../src/presentation.js";
 import type { SlackInstallation, ThreadKey } from "../src/domain.js";
 import {
   DatalayerHostClient,
@@ -94,6 +100,8 @@ class FakeSlack implements SlackPort {
   direct: Array<{ message: SlackMessage; userId: string }> = [];
   thread: Array<{ key: ThreadKey; message: SlackMessage }> = [];
   updates: Array<{ channelId: string; message: SlackMessage; ts: string }> = [];
+  privately: Array<{ key: ThreadKey; message: SlackMessage; userId: string }> =
+    [];
   #ts = 10;
 
   async postDirect(_key: unknown, userId: string, message: SlackMessage) {
@@ -101,6 +109,7 @@ class FakeSlack implements SlackPort {
     return { channelId: "D0ALICE", ts: `${(this.#ts += 1)}.0` };
   }
   async postPrivate(key: ThreadKey, userId: string, message: SlackMessage) {
+    this.privately.push({ key, message, userId });
     await this.postDirect(key, userId, message);
   }
   async postThread(key: ThreadKey, message: SlackMessage) {
@@ -531,7 +540,7 @@ describe("approval.decided and turn.completed", () => {
     );
   });
 
-  it("finishes the thread's status with the session's answer, opened through a one-use handoff (S-305)", async () => {
+  it("finishes the thread's status with the session's answer and its Open in Datalayer button (S-305, S-306)", async () => {
     const { calls, handler, slack, store } = await setup({
       [`GET ${exchanged.session_api.url}/S1/messages`]: () =>
         Response.json({ messages: [{ role: "assistant", content: "Sent." }] }),
@@ -570,16 +579,151 @@ describe("approval.decided and turn.completed", () => {
       expect.objectContaining({ channelId: "D0ALICE", ts: "5.0" }),
     ]);
     expect(slack.updates[0]?.message.text).toContain("Sent.");
-    // The conversation through its person's own handoff, never a guessed path.
-    const made = calls.find((call) => call.key === route("handoff"));
-    expect(made?.body).toEqual({ kind: "session", target: "S1" });
-    expect(slack.updates[0]?.message.text).toContain(
-      "<https://datalayer.ai/hosts/open?code=dlho_card|Open in Datalayer>",
-    );
-    expect(slack.updates[0]?.message.text).not.toContain("/loop/");
+    // No link minted with the answer: the button mints one on each press.
+    expect(calls.some((call) => call.key === route("handoff"))).toBe(false);
+    const shown = JSON.stringify(slack.updates[0]?.message.blocks);
+    expect(shown).toContain(OPEN_ACTION);
+    expect(shown).toContain(JSON.stringify(openValueOf("S1", "U0ALICE")));
+    expect(shown).not.toContain("hosts/open");
+    expect(shown).not.toContain("/loop/");
     await expect(store.getThread(thread)).resolves.toMatchObject({
       pendingMessageTs: undefined,
     });
+  });
+});
+
+describe("Open in Datalayer, a link per press (S-306)", () => {
+  const channel = {
+    appId: "A1",
+    channelId: "C0TEAM",
+    teamId: "T1",
+    threadTs: "1700000000.000001",
+  };
+  const direct = { ...channel, channelId: "D0ALICE" };
+
+  async function opened(thread: ThreadKey, updatedAt = new Date(0)) {
+    let made = 0;
+    const run = await setup({
+      [route("handoff")]: () => {
+        made += 1;
+        return Response.json({
+          success: true,
+          code: `dlho_${made}`,
+          expires_in: 600,
+          path: `/hosts/open?code=dlho_${made}`,
+        });
+      },
+    });
+    await run.store.putThread({
+      ...thread,
+      applicationId: "dep-1",
+      openedByPrincipalId: "alice",
+      sessionId: "S1",
+      updatedAt: updatedAt.toISOString(),
+    });
+    return run;
+  }
+  const linkOf = (message?: SlackMessage) =>
+    (
+      message?.blocks?.find((block) => block.type === "actions") as
+        | { elements: Array<{ action_id?: string; url?: string }> }
+        | undefined
+    )?.elements[0];
+
+  it("mints a new handoff on every press, as the presser, said privately in a channel", async () => {
+    const { calls, handler, slack } = await opened(channel);
+    const value = { s: "S1", u: "U0ALICE" };
+    await expect(handler.open(channel, value, "U0ALICE")).resolves.toBe(
+      "opened",
+    );
+    await expect(handler.open(channel, value, "U0ALICE")).resolves.toBe(
+      "opened",
+    );
+    const made = calls.filter((call) => call.key === route("handoff"));
+    expect(made).toHaveLength(2);
+    expect(made[0]?.body).toEqual({ kind: "session", target: "S1" });
+    expect(made[0]?.headers.authorization).toBe("Bearer host-token");
+    const exchange = calls.find((call) => call.key === route("exchange"));
+    expect(exchange?.body).toMatchObject({
+      deployment_uid: "dep-1",
+      external_user_id: "U0ALICE",
+    });
+    // Two presses, two links: each a URL button, for the presser only.
+    expect(slack.privately.map((one) => one.userId)).toEqual([
+      "U0ALICE",
+      "U0ALICE",
+    ]);
+    expect(slack.privately.map((one) => linkOf(one.message))).toEqual([
+      expect.objectContaining({
+        action_id: OPEN_LINK_ACTION,
+        url: `${WEB}/hosts/open?code=dlho_1`,
+      }),
+      expect.objectContaining({
+        action_id: OPEN_LINK_ACTION,
+        url: `${WEB}/hosts/open?code=dlho_2`,
+      }),
+    ]);
+    expect(slack.thread).toHaveLength(0);
+  });
+
+  it("still opens a conversation answered more than ten minutes ago", async () => {
+    const { handler, slack } = await opened(
+      channel,
+      new Date(Date.now() - 11 * 60 * 1000),
+    );
+    await expect(
+      handler.open(channel, { s: "S1", u: "U0ALICE" }, "U0ALICE"),
+    ).resolves.toBe("opened");
+    expect(linkOf(slack.privately[0]?.message)?.url).toBe(
+      `${WEB}/hosts/open?code=dlho_1`,
+    );
+  });
+
+  it("answers in the direct message's thread", async () => {
+    const { handler, slack } = await opened(direct);
+    await handler.open(direct, { s: "S1", u: "U0ALICE" }, "U0ALICE");
+    expect(slack.privately).toHaveLength(0);
+    expect(slack.thread).toHaveLength(1);
+    expect(slack.thread[0]?.key).toEqual(direct);
+    expect(linkOf(slack.thread[0]?.message)?.url).toBe(
+      `${WEB}/hosts/open?code=dlho_1`,
+    );
+  });
+
+  it("tells another member whose conversation it is, and makes no link", async () => {
+    const { calls, handler, slack } = await opened(channel);
+    await expect(
+      handler.open(channel, { s: "S1", u: "U0ALICE" }, "U0BOB"),
+    ).resolves.toBe("not-yours");
+    expect(calls).toHaveLength(0);
+    expect(slack.privately[0]?.userId).toBe("U0BOB");
+    expect(slack.privately[0]?.message.text).toBe(
+      OPEN_WORDS.notYours("U0ALICE"),
+    );
+    expect(slack.privately[0]?.message.text).toContain("<@U0ALICE>'s");
+  });
+
+  it("refuses a presser Datalayer names as another person than the session's", async () => {
+    const { calls, handler, store } = await opened(channel);
+    await store.putThread({
+      ...channel,
+      applicationId: "dep-1",
+      openedByPrincipalId: "carol",
+      sessionId: "S1",
+      updatedAt: new Date(0).toISOString(),
+    });
+    await expect(
+      handler.open(channel, { s: "S1", u: "U0ALICE" }, "U0ALICE"),
+    ).resolves.toBe("not-yours");
+    expect(calls.some((call) => call.key === route("handoff"))).toBe(false);
+  });
+
+  it("says a conversation no longer in the thread is not here", async () => {
+    const { calls, handler } = await opened(channel);
+    await expect(
+      handler.open(channel, { s: "S-other", u: "U0ALICE" }, "U0ALICE"),
+    ).resolves.toBe("not-here");
+    expect(calls).toHaveLength(0);
   });
 });
 

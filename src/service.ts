@@ -20,7 +20,7 @@ import type {
   TurnRequest,
 } from "./domain.js";
 import { LOG_SALT } from "./observability.js";
-import { STOP_ACTION, stripAppMention } from "./presentation.js";
+import { openValueOf, STOP_ACTION, stripAppMention } from "./presentation.js";
 import { retryingSlackPort, SlackRateLimiter } from "./rate-limit.js";
 import { TurnRenderer } from "./render.js";
 import { TurnRouting, type Refusal } from "./routing.js";
@@ -116,8 +116,6 @@ export type ServiceOptions = Readonly<{
   events?: "quiet" | "noisy";
   /** How often a running turn's heartbeat is written (`TURN_HEARTBEAT_MS`). */
   heartbeatMs?: number;
-  /** Where *Open in Datalayer* goes for a session: a one-use handoff when Datalayer answers one. */
-  openUrlOf?: (sessionId: string, request: TurnRequest) => Promise<string>;
 }>;
 
 function slackErrorOf(error: unknown): string | undefined {
@@ -321,25 +319,15 @@ export class SlackAgentService {
       throw error;
     }
 
-    // *Open in Datalayer* is a one-use handoff to this conversation (S-305),
-    // or no button at all: never a guessed address.
-    const openUrl = this.options.openUrlOf
-      ? await this.options
-          .openUrlOf(turn.sessionId, request)
-          .catch((error: unknown) => {
-            this.logger.warn("turn.handoff_failed", {
-              error_name: error instanceof Error ? error.name : "unknown",
-            });
-            return "";
-          })
-      : "";
     const renderer = new TurnRenderer(this.#paced, this.limiter, prompt, {
       askValue: prompt.eventId,
       cadenceMs: this.options.cadenceMs,
       events: this.options.events,
       clock: this.#clock,
       messageTs: claim.turn.messageTs,
-      openUrl,
+      // *Open in Datalayer* mints a one-use handoff on each press, for this
+      // conversation's person only (S-306): no link is made at turn start.
+      openValue: openValueOf(turn.sessionId, prompt.userId),
       recipientUserId: prompt.userId,
     });
     const stopValue = (runId?: string): string =>

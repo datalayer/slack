@@ -262,13 +262,14 @@ exports[`Block Kit snapshots and limits (S-406) > a choice question: within Slac
     {
       "elements": [
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -320,13 +321,14 @@ exports[`Block Kit snapshots and limits (S-406) > a failed turn: within Slack's 
           "type": "overflow",
         },
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -378,13 +380,14 @@ exports[`Block Kit snapshots and limits (S-406) > a finished answer in noisy mod
           "type": "overflow",
         },
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -453,13 +456,14 @@ B       Low\`\`\`",
           "type": "overflow",
         },
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -487,7 +491,7 @@ exports[`Block Kit snapshots and limits (S-406) > a form answered in Datalayer: 
     {
       "elements": [
         {
-          "text": "This question is answered in Datalayer, where every field is shown: <https://datalayer.ai/hosts/open?code=abc|Answer in Datalayer>",
+          "text": "This question is answered in Datalayer, where every field is shown: press *Open in Datalayer* to answer it.",
           "type": "mrkdwn",
         },
       ],
@@ -505,13 +509,14 @@ exports[`Block Kit snapshots and limits (S-406) > a form answered in Datalayer: 
     {
       "elements": [
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -554,13 +559,14 @@ exports[`Block Kit snapshots and limits (S-406) > a running answer with Stop: wi
           "value": "{"e":"Ev1","r":"t1","s":"S1"}",
         },
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -605,13 +611,14 @@ exports[`Block Kit snapshots and limits (S-406) > a stopped turn: within Slack's
           "type": "overflow",
         },
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -656,13 +663,14 @@ exports[`Block Kit snapshots and limits (S-406) > a streamed answer's stop block
           "type": "overflow",
         },
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -708,13 +716,14 @@ exports[`Block Kit snapshots and limits (S-406) > a text question in a channel: 
     {
       "elements": [
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",
@@ -755,13 +764,14 @@ exports[`Block Kit snapshots and limits (S-406) > a text question in a direct me
     {
       "elements": [
         {
+          "accessibility_label": "Open this conversation in Datalayer: a new link, for you only",
           "action_id": "datalayer_open_in_datalayer",
           "text": {
             "text": "Open in Datalayer",
             "type": "plain_text",
           },
           "type": "button",
-          "url": "https://datalayer.ai/hosts/open?code=abc",
+          "value": "{"s":"S1","u":"U1"}",
         },
       ],
       "type": "actions",

@@ -5,7 +5,7 @@ import {
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 import type { ThreadKey } from "./domain.js";
-import { escapeSlack, TurnPresentation } from "./presentation.js";
+import { streamMarkdown, TurnPresentation } from "./presentation.js";
 import type { SlackRateLimiter } from "./rate-limit.js";
 import type { SlackPort } from "./slack-port.js";
 
@@ -44,9 +44,25 @@ function slackRefusalOf(error: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * Where streamed words may be sent now (S-306): before a link or an address
+ * that may not be whole yet — the last word, or an unclosed `[` of a
+ * Markdown link — so `streamMarkdown` sees each link whole. The rest waits
+ * for the next flush, or the last one.
+ */
+export function streamReadyAt(text: string): number {
+  const word = Math.max(text.lastIndexOf(" "), text.lastIndexOf("\n")) + 1;
+  const bracket = text.lastIndexOf("[");
+  const unclosed =
+    bracket >= 0 &&
+    text.length - bracket <= 2_400 &&
+    !/^\[[^\]\n]*\]\([^\s)]*\)/.test(text.slice(bracket));
+  return unclosed ? Math.min(word, bracket) : word;
+}
+
 export type RenderOptions = Readonly<{
-  /** Where the session is opened in Datalayer (a one-use handoff when available). */
-  openUrl: string;
+  /** What *Open in Datalayer* carries (`openValueOf`): each press mints its own link. */
+  openValue: string;
   /** The Slack user the answer streams to (Slack streaming needs a recipient in a channel). */
   recipientUserId: string;
   /** What a choice button carries to answer the question (the run asking). */
@@ -156,11 +172,11 @@ export class TurnRenderer {
     const ts = await this.begin();
     if (this.#streaming && this.slack.streaming) {
       const streaming = this.slack.streaming;
-      await this.#flushStream();
+      await this.#flushStream(true);
       // Slack appends these blocks under the streamed words: what the stream
       // did not carry (files, sources, the question, the status, the
       // actions), never the answer a second time.
-      const final = this.presentation.message(this.options.openUrl, {
+      const final = this.presentation.message(this.options.openValue, {
         askValue: this.options.askValue,
         direct: this.key.channelId.startsWith("D"),
         events: this.options.events,
@@ -195,13 +211,18 @@ export class TurnRenderer {
     this.#dirty = false;
   }
 
-  async #flushStream(): Promise<void> {
+  async #flushStream(final = false): Promise<void> {
     const streaming = this.slack.streaming;
     const ts = this.#ts;
     if (!streaming || !ts || !this.#pendingText) return;
-    let text = escapeSlack(this.#pendingText);
-    this.#pendingText = "";
-    if (this.#streamCut) return;
+    const ready = final
+      ? this.#pendingText.length
+      : streamReadyAt(this.#pendingText);
+    const words = this.#pendingText.slice(0, ready);
+    this.#pendingText = this.#pendingText.slice(ready);
+    if (this.#streamCut || !words) return;
+    // Links held to HTTPS, as the unstreamed answer's are (S-306).
+    let text = streamMarkdown(words);
     const room = STREAM_LIMITS.total - this.#streamed;
     if (text.length > room) {
       text = `${text.slice(0, entitySafeCut(text, Math.max(0, room)))}${STREAM_REST}`;
@@ -222,7 +243,7 @@ export class TurnRenderer {
   }
 
   #message() {
-    return this.presentation.message(this.options.openUrl, {
+    return this.presentation.message(this.options.openValue, {
       threadMenu: true,
       direct: this.key.channelId.startsWith("D"),
       events: this.options.events,

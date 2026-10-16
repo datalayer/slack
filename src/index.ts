@@ -137,16 +137,6 @@ async function main(): Promise<void> {
         user: config.DATALAYER_SLACK_QUOTA_USER,
         installation: config.DATALAYER_SLACK_QUOTA_WORKSPACE,
       },
-      // *Open in Datalayer*: a one-use handoff to the exact session (S-305).
-      openUrlOf: async (sessionId, request) => {
-        const exchanged = await keyed.exchange(request);
-        const opened = await client.handoff(
-          exchanged.access_token,
-          "session",
-          sessionId,
-        );
-        return `${config.DATALAYER_WEB_URL.replace(/\/+$/, "")}${opened.path}`;
-      },
     },
   );
   const deliveries = new DeliveryHandler(

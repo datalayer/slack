@@ -33,7 +33,11 @@ import {
   REVIEW_ACTION,
   type ConfirmMetadata,
 } from "./approval-card.js";
-import { DECISION_WORDS, type DeliveryHandler } from "./deliveries.js";
+import {
+  DECISION_WORDS,
+  OPEN_LINK_ACTION,
+  type DeliveryHandler,
+} from "./deliveries.js";
 import { guardRequestTimestamps } from "./health.js";
 import {
   CONNECT_ACTION,
@@ -50,6 +54,7 @@ import {
   STOP_ACTION,
   THREAD_MENU_ACTION,
   USE_ANOTHER,
+  type OpenValue,
 } from "./presentation.js";
 import {
   SELECT_APPLICATION_ACTION,
@@ -491,7 +496,7 @@ export function registerSlackListeners(
     DOCS_ACTION,
     SUPPORT_ACTION,
     REVIEW_ACTION,
-    OPEN_ACTION,
+    OPEN_LINK_ACTION,
   ])
     app.action(action, async ({ ack }) => {
       await ack();
@@ -547,6 +552,27 @@ export function registerSlackListeners(
       await worker.stop(thread, value, action.user.id);
     } catch (error) {
       logger.error("Failed to stop the turn", error);
+    }
+  });
+
+  // *Open in Datalayer* (S-306): each press mints its own one-use link,
+  // for the conversation's own person, said privately.
+  app.action(OPEN_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const pressed = action.actions[0];
+      const thread = threadOf(action);
+      if (!parts.deliveries || !thread || pressed?.type !== "button") return;
+      const value = JSON.parse(pressed.value ?? "{}") as Partial<OpenValue>;
+      if (typeof value.s !== "string" || typeof value.u !== "string") return;
+      await parts.deliveries.open(
+        thread,
+        { s: value.s, u: value.u },
+        action.user.id,
+      );
+    } catch (error) {
+      logger.error("Failed to open the conversation in Datalayer", error);
     }
   });
 

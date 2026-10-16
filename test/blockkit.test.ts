@@ -14,7 +14,7 @@ import {
   type ApprovalPresentation,
   type SemanticEvent,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import { TurnPresentation } from "../src/presentation.js";
+import { openValueOf, TurnPresentation } from "../src/presentation.js";
 import { TurnRouting } from "../src/routing.js";
 import { MemorySlackStore } from "../src/store.js";
 import {
@@ -34,6 +34,7 @@ import { CONTRACTS_PATH } from "./support/contracts.js";
  */
 
 const OPEN = "https://datalayer.ai/hosts/open?code=abc";
+const OPEN_VALUE = openValueOf("S1", "U1");
 const WEB = "https://datalayer.ai";
 const key = { appId: "A1", teamId: "T1" } as const;
 
@@ -57,45 +58,47 @@ const MESSAGES = {
   "a running answer with Stop": turn(
     { kind: "text", text: "Comparing the two options" },
     { id: "c1", kind: "tool", name: "search", status: "running" },
-  ).message(OPEN, {
+  ).message(OPEN_VALUE, {
     runId: "t1",
     stopValue: JSON.stringify({ e: "Ev1", r: "t1", s: "S1" }),
   }),
   "a finished answer with a table and sources": turn(
     { kind: "text", text: answer },
     { kind: "completion" },
-  ).message(OPEN, { threadMenu: true }),
+  ).message(OPEN_VALUE, { threadMenu: true }),
   "a finished answer in noisy mode": turn(
     { id: "c1", kind: "tool", name: "search", status: "complete" },
     { id: "c2", kind: "tool", name: "read_file", status: "failed" },
     { kind: "text", text: "Done." },
     { kind: "completion" },
-  ).message(OPEN, { events: "noisy", threadMenu: true }),
+  ).message(OPEN_VALUE, { events: "noisy", threadMenu: true }),
   "a streamed answer's stop blocks": turn(
     { kind: "text", text: answer },
     { kind: "completion" },
-  ).message(OPEN, { streamed: true, threadMenu: true }),
+  ).message(OPEN_VALUE, { streamed: true, threadMenu: true }),
   "a failed turn": turn(
     { kind: "text", text: "Starting" },
     { kind: "error", message: "The connection to Datalayer was interrupted." },
-  ).message(OPEN, { threadMenu: true }),
-  "a stopped turn": turn({ kind: "stop" }).message(OPEN, { threadMenu: true }),
+  ).message(OPEN_VALUE, { threadMenu: true }),
+  "a stopped turn": turn({ kind: "stop" }).message(OPEN_VALUE, {
+    threadMenu: true,
+  }),
   "a text question in a channel": turn({
     kind: "ask",
     question: { kind: "text", prompt: "Which quarter?" },
-  }).message(OPEN, { askValue: "Ev1" }),
+  }).message(OPEN_VALUE, { askValue: "Ev1" }),
   "a text question in a direct message": turn({
     kind: "ask",
     question: { kind: "text", prompt: "Which quarter?" },
-  }).message(OPEN, { askValue: "Ev1", direct: true }),
+  }).message(OPEN_VALUE, { askValue: "Ev1", direct: true }),
   "a choice question": turn({
     kind: "ask",
     question: { kind: "choice", options: ["Q1", "Q2"], prompt: "Which?" },
-  }).message(OPEN, { askValue: "Ev1" }),
+  }).message(OPEN_VALUE, { askValue: "Ev1" }),
   "a form answered in Datalayer": turn({
     kind: "ask",
     question: { kind: "form", prompt: "Fill in the filing" },
-  }).message(OPEN, { askValue: "Ev1" }),
+  }).message(OPEN_VALUE, { askValue: "Ev1" }),
   "an approval card that offers the decision": approvalCard(example, {
     appName: "Desk",
     deploymentUid: "dep-1",

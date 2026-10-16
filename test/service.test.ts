@@ -4,7 +4,7 @@ import {
   HostRefusedError,
   type SemanticEvent,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import { OPEN_ACTION, STOP_ACTION } from "../src/presentation.js";
+import { OPEN_ACTION, openValueOf, STOP_ACTION } from "../src/presentation.js";
 import { SlackAgentService, type StopValue } from "../src/service.js";
 import { MemorySlackStore } from "../src/store.js";
 import {
@@ -562,35 +562,24 @@ describe("people gone from Slack and late work (S-103, S-106)", () => {
   });
 });
 
-describe("Open in Datalayer (S-305)", () => {
-  it("is the one-use handoff, or no button at all: never a guessed address", async () => {
-    for (const [openUrlOf, expected] of [
-      [async () => "https://datalayer.ai/hosts/open?code=dlho_x", true],
-      [
-        async () => {
-          throw new HostRefusedError(503, "down", "handoff");
-        },
-        false,
-      ],
-    ] as const) {
-      const store = await installedStore({ defaultApplication: "dep-1" });
-      const slack = new FakeSlack();
-      const { lines, logger } = keptLogger();
-      const service = new SlackAgentService(
-        store,
-        new FakeAgents(),
-        slack,
-        "https://datalayer.ai",
-        new FakeLinks(),
-        { clock: new FakeClock(), logger, openUrlOf },
-      );
-      await service.handlePrompt(promptOf(), "B1");
-      const final = JSON.stringify(slack.of("chat.update").at(-1)?.message);
-      expect(final).not.toContain("/loop/");
-      expect(final.includes(OPEN_ACTION)).toBe(expected);
-      if (expected)
-        expect(final).toContain("https://datalayer.ai/hosts/open?code=dlho_x");
-      else expect(lines.join("\n")).toContain("turn.handoff_failed");
-    }
+describe("Open in Datalayer (S-305, S-306)", () => {
+  it("is an action button naming the session and its person: no link is made at turn start", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack();
+    const agents = new FakeAgents();
+    const service = new SlackAgentService(
+      store,
+      agents,
+      slack,
+      "https://datalayer.ai",
+      new FakeLinks(),
+      { clock: new FakeClock(), logger: keptLogger().logger },
+    );
+    await service.handlePrompt(promptOf(), "B1");
+    const final = JSON.stringify(slack.of("chat.update").at(-1)?.message);
+    expect(final).toContain(OPEN_ACTION);
+    expect(final).toContain(JSON.stringify(openValueOf("S-0", "U1")));
+    expect(final).not.toContain("hosts/open");
+    expect(final).not.toContain("/loop/");
   });
 });

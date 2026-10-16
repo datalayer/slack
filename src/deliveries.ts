@@ -8,6 +8,7 @@ import {
   type DeliveryJob,
   type DeliverySink,
   type HostDelivery,
+  type HostExchange,
   type HostKeyCredentials,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { z } from "zod";
@@ -23,8 +24,14 @@ import type {
   SlackInstallationKey,
   ThreadKey,
 } from "./domain.js";
-import { safeSlackText, slackLink } from "./presentation.js";
-import type { SlackPort } from "./slack-port.js";
+import {
+  openValueOf,
+  safeHttpsUrl,
+  SLACK_MEMBER_ID,
+  TurnPresentation,
+  type OpenValue,
+} from "./presentation.js";
+import type { SlackMessage, SlackPort } from "./slack-port.js";
 import type { SlackStore } from "./store.js";
 
 /**
@@ -61,6 +68,21 @@ export function deliverySinkOf(store: SlackStore): DeliverySink {
 
 /** A direct message's channel: an approval there is shown in the thread itself. */
 const isDirect = (channelId: string): boolean => channelId.startsWith("D");
+
+/** The URL button of a fresh *Open in Datalayer* link: Slack sends its click, acknowledged. */
+export const OPEN_LINK_ACTION = "datalayer_open_link";
+
+/** What a press of *Open in Datalayer* came to (S-306). */
+export type OpenOutcome = "opened" | "not-yours" | "not-here" | "refused";
+
+/** What a press that made no link says, privately, to whoever pressed. */
+export const OPEN_WORDS = {
+  notHere:
+    "This conversation is no longer in this thread. Open the application in Datalayer, where its conversations are kept.",
+  notYours: (owner?: string) =>
+    `This is ${owner ? `<@${owner}>'s` : "another person's"} conversation: only they can open it in Datalayer. Mention @Datalayer to start your own.`,
+  refused: (detail: string) => `Datalayer did not make the link: ${detail}`,
+} as const;
 
 /** What a decision from Slack came to, said privately to the person who pressed. */
 export type DecisionOutcome =
@@ -288,21 +310,106 @@ export class DeliveryHandler {
       host,
       payload.session_uid,
     );
-    // *Open in Datalayer* opens this very conversation, for its person, once (S-305).
-    const opened = await this.client.handoff(
-      exchanged.access_token,
-      "session",
-      payload.session_uid,
-    );
-    const openUrl = `${this.webUrl.replace(/\/+$/, "")}${opened.path}`;
-    await this.slack.updateMessage(thread, binding.pendingMessageTs, {
-      text: `${text ? safeSlackText(text) : "_Finished in Datalayer._"}\n\n${slackLink(openUrl, "Open in Datalayer")}`,
+    // Shown as a streamed turn's answer is, with its *Open in Datalayer*:
+    // each press mints its own one-use handoff for this person (S-306).
+    const answer = new TurnPresentation();
+    answer.apply({
+      kind: "completion",
+      text: text || "Finished in Datalayer.",
     });
+    await this.slack.updateMessage(
+      thread,
+      binding.pendingMessageTs,
+      answer.message(openValueOf(payload.session_uid, target.userId), {
+        direct: isDirect(thread.channelId),
+        threadMenu: true,
+      }),
+    );
     await this.store.putThread({
       ...binding,
       pendingMessageTs: undefined,
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  /**
+   * *Open in Datalayer* pressed (S-306): a one-use handoff minted for this
+   * press, as the person who pressed (their own host token), only when they
+   * are the person whose conversation it is; said privately — an ephemeral
+   * message in a channel, a reply in their direct message — as a link button.
+   */
+  async open(
+    thread: ThreadKey,
+    value: OpenValue,
+    slackUserId: string,
+  ): Promise<OpenOutcome> {
+    const say = async (message: SlackMessage): Promise<void> => {
+      if (isDirect(thread.channelId))
+        await this.slack.postThread(thread, message);
+      else await this.slack.postPrivate(thread, slackUserId, message);
+    };
+    const owner = SLACK_MEMBER_ID.test(value.u) ? value.u : undefined;
+    if (slackUserId !== value.u) {
+      await say({ text: OPEN_WORDS.notYours(owner) });
+      return "not-yours";
+    }
+    const installation = await this.store.getInstallation(thread);
+    const binding = [
+      await this.store.getThread(thread),
+      ...(await this.store.getArchivedThreads(thread)),
+    ].find((one) => one?.sessionId === value.s);
+    if (!installation?.datalayerHostKey || !binding) {
+      await say({ text: OPEN_WORDS.notHere });
+      return "not-here";
+    }
+    let exchanged: HostExchange;
+    try {
+      exchanged = await this.#session(
+        installation,
+        slackUserId,
+        binding.applicationId,
+      );
+    } catch (error) {
+      if (!(error instanceof HostRefusedError) || error.status >= 500)
+        throw error;
+      await say({ text: OPEN_WORDS.refused(error.detail) });
+      return "refused";
+    }
+    // Datalayer's word on who pressed: the session's own person, or no link.
+    if (exchanged.principal_uid !== binding.openedByPrincipalId) {
+      await say({ text: OPEN_WORDS.notYours(owner) });
+      return "not-yours";
+    }
+    const opened = await this.client.handoff(
+      exchanged.access_token,
+      "session",
+      value.s,
+    );
+    const url = safeHttpsUrl(
+      `${this.webUrl.replace(/\/+$/, "")}${opened.path}`,
+    );
+    if (!url) throw new Error("The handoff's address is not an HTTPS address.");
+    const minutes = Math.max(1, Math.round(opened.expiresIn / 60));
+    const words = `A new link to this conversation, for you only: it opens once, within ${minutes} minute${minutes === 1 ? "" : "s"}. Press *Open in Datalayer* again for another.`;
+    await say({
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: words } },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              action_id: OPEN_LINK_ACTION,
+              style: "primary",
+              text: { type: "plain_text", text: "Open in Datalayer" },
+              url,
+            },
+          ],
+        },
+      ],
+      text: words,
+    });
+    return "opened";
   }
 
   /**

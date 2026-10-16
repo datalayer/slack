@@ -24,7 +24,7 @@ function rendererOf(slack: FakeSlack, clock = new FakeClock()) {
   const limiter = new SlackRateLimiter(clock);
   const renderer = new TurnRenderer(slack, limiter, promptOf(), {
     clock,
-    openUrl: OPEN,
+    openValue: OPEN,
     recipientUserId: "U1",
   });
   renderer.stopValue = JSON.stringify({ e: "Ev1", r: "t1", s: "S1" });
@@ -190,7 +190,9 @@ describe("Slack-safe messages (S-206, S-306)", () => {
     expect(preview).toContain("r11");
     expect(preview).not.toContain("r12 ");
     expect(preview).toContain("28 more rows");
-    expect(preview).toContain("see the whole table in Datalayer");
+    expect(preview).toContain(
+      "press *Open in Datalayer* to see the whole table.",
+    );
   });
 
   it("lists citations as safe HTTPS links and never makes a link of another scheme", () => {
@@ -236,7 +238,7 @@ describe("Slack-safe messages (S-206, S-306)", () => {
     const handed = JSON.stringify(
       form.message(OPEN, { askValue: "Ev1" }).blocks,
     );
-    expect(handed).toContain("Answer in Datalayer");
+    expect(handed).toContain("press *Open in Datalayer* to answer it.");
     expect(handed).not.toContain("datalayer_ask_choice");
   });
 });
@@ -271,7 +273,7 @@ describe("questions and the event policy (S-307, S-308)", () => {
       many.message(OPEN, { askValue: "Ev1" }).blocks,
     );
     expect(blocks).not.toContain("datalayer_ask_choice");
-    expect(blocks).toContain("Answer in Datalayer");
+    expect(blocks).toContain("press *Open in Datalayer* to answer it.");
   });
 
   it("hands a choice it cannot show whole to Datalayer: no options, a long option, a long value (S-307)", () => {
@@ -285,7 +287,7 @@ describe("questions and the event policy (S-307, S-308)", () => {
         asking.message(OPEN, { askValue: "Ev1" }).blocks,
       );
       expect(blocks).not.toContain("datalayer_ask_choice");
-      expect(blocks).toContain("Answer in Datalayer");
+      expect(blocks).toContain("press *Open in Datalayer* to answer it.");
     }
     const tooLong = new TurnPresentation();
     tooLong.apply({
@@ -296,7 +298,7 @@ describe("questions and the event policy (S-307, S-308)", () => {
       tooLong.message(OPEN, { askValue: "E".repeat(1990) }).blocks,
     );
     expect(handed).not.toContain("datalayer_ask_choice");
-    expect(handed).toContain("Answer in Datalayer");
+    expect(handed).toContain("press *Open in Datalayer* to answer it.");
   });
 
   it("replaces an answered choice's buttons by who answered what", () => {

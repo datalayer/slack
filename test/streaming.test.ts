@@ -32,7 +32,7 @@ function streamed(slack: FakeSlack, clock = new FakeClock()) {
   const limiter = new SlackRateLimiter(clock);
   const renderer = new TurnRenderer(slack, limiter, promptOf(), {
     clock,
-    openUrl: OPEN,
+    openValue: OPEN,
     recipientUserId: "U1",
   });
   return { clock, limiter, renderer };
@@ -255,5 +255,35 @@ describe("every other Slack call waits out a 429 (S-206)", () => {
     );
     const client = app.client as unknown as { rejectRateLimitedCalls: boolean };
     expect(client.rejectRateLimitedCalls).toBe(true);
+  });
+});
+
+describe("links in a streamed answer (S-306)", () => {
+  it("holds links to HTTPS even when a link arrives across two appends", async () => {
+    const slack = new FakeSlack({ streaming: true });
+    const { clock, renderer } = streamed(slack);
+    await renderer.begin();
+    clock.advance(60_000);
+    await renderer.apply({ kind: "text", text: "See [plain](http://pla" });
+    const early = slack
+      .of("chat.appendStream")
+      .map((call) => call.markdown)
+      .join("");
+    // The unfinished link waits: only whole words before it are sent.
+    expect(early).toBe("See ");
+    clock.advance(60_000);
+    await renderer.apply({
+      kind: "text",
+      text: "in.example/x) and [ok](https://a.example/b) or http://bare.example done",
+    });
+    await renderer.apply({ kind: "completion" });
+    await renderer.finish();
+    const appended = slack
+      .of("chat.appendStream")
+      .map((call) => call.markdown)
+      .join("");
+    expect(appended).toBe(
+      "See plain `http://plain.example/x` and [ok](https://a.example/b) or `http://bare.example` done",
+    );
   });
 });

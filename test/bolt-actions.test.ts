@@ -9,10 +9,13 @@ import { MemoryWorkQueue } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import {
   ASK_CHOICE_ACTION,
   askChoiceValue,
+  OPEN_ACTION,
+  openValueOf,
   START_OVER,
   THREAD_MENU_ACTION,
   USE_ANOTHER,
 } from "../src/presentation.js";
+import type { DeliveryHandler } from "../src/deliveries.js";
 import { SELECT_APPLICATION_ACTION } from "../src/routing.js";
 import { SlackAgentService } from "../src/service.js";
 import type { MemorySlackStore } from "../src/store.js";
@@ -50,7 +53,7 @@ const allow = [
   { id: "dep-2", name: "Desk" },
 ];
 
-function boltOf(store: MemorySlackStore) {
+function boltOf(store: MemorySlackStore, deliveries?: DeliveryHandler) {
   const slack = new FakeSlack();
   const agents = new FakeAgents();
   const queue = new KeptQueue();
@@ -79,7 +82,7 @@ function boltOf(store: MemorySlackStore) {
     }),
     service,
     queue,
-    { consume: false },
+    { consume: false, deliveries },
   );
   const press = async (body: Record<string, unknown>) => {
     let acked = false;
@@ -349,5 +352,48 @@ describe("the approval confirmation modal (S-206)", () => {
       user: { id: "U1", team_id: "T1" },
     });
     expect(retried).toEqual(["views.open"]);
+  });
+});
+
+describe("Open in Datalayer through the Bolt handlers (S-306)", () => {
+  it("hands each press, its thread and who pressed to the per-press handoff", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const opens: unknown[][] = [];
+    const deliveries = {
+      open: async (...args: unknown[]) => {
+        opens.push(args);
+        return "opened";
+      },
+    } as unknown as DeliveryHandler;
+    const { press } = boltOf(store, deliveries);
+    const pressOpen = (user: string) =>
+      press({
+        actions: [
+          {
+            action_id: OPEN_ACTION,
+            action_ts: "9.3",
+            type: "button",
+            value: openValueOf("S-0", "U1"),
+          },
+        ],
+        channel: { id: "C1" },
+        container: { channel_id: "C1", message_ts: "2.0", type: "message" },
+        message: { thread_ts: "1.0", ts: "2.0" },
+        user: { id: user, team_id: "T1" },
+      });
+    await pressOpen("U1");
+    await pressOpen("U2");
+    expect(opens).toEqual([
+      [
+        expect.objectContaining({ channelId: "C1", threadTs: "1.0" }),
+        { s: "S-0", u: "U1" },
+        "U1",
+      ],
+      [
+        expect.objectContaining({ channelId: "C1", threadTs: "1.0" }),
+        { s: "S-0", u: "U1" },
+        "U2",
+      ],
+    ]);
   });
 });

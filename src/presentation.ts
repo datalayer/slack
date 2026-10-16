@@ -31,6 +31,18 @@ export const STOP_ACTION = "datalayer_stop_turn";
 export const SLACK_MEMBER_ID = /^[UW][A-Z0-9]{1,23}$/;
 export const ASK_CHOICE_ACTION = "datalayer_ask_choice";
 export const OPEN_ACTION = "datalayer_open_in_datalayer";
+/**
+ * What *Open in Datalayer* carries (S-306): the session and the Slack member
+ * whose conversation it is. Each press mints its own one-use handoff for
+ * that member, so the button never goes stale; the session's person is
+ * checked at Datalayer, the member id only names them to anyone else.
+ */
+export type OpenValue = Readonly<{ s: string; u: string }>;
+export function openValueOf(sessionId: string, slackUserId: string): string {
+  return JSON.stringify({ s: sessionId, u: slackUserId } satisfies OpenValue);
+}
+/** Where a link to the conversation would be: the button, pressed for a fresh link. */
+const PRESS_OPEN = "press *Open in Datalayer*";
 /** The finished answer's menu: *Use another application*, *Start over* (S-208). */
 export const THREAD_MENU_ACTION = "datalayer_thread_menu";
 export const USE_ANOTHER = "use-another-application";
@@ -78,19 +90,68 @@ export function safeHttpsUrl(value: string): string | undefined {
   }
 }
 
-/** Escaped answer words, its Markdown HTTPS links as Slack links. */
-export function answerMrkdwn(text: string): string {
-  const links: string[] = [];
-  const marked = text.replace(
-    /\[([^\]\n]{1,300})\]\((https:\/\/[^\s)]{1,2000})\)/g,
-    (_, label: string, url: string) => {
-      links.push(slackLink(url, label));
-      return `\uE000${links.length - 1}\uE001`;
-    },
-  );
-  return escapeSlack(marked).replace(
+/** A Markdown link in an answer: `[label](url)`. */
+const MARKDOWN_LINK = /\[([^\]\n]{1,300})\]\(([^\s)]{1,2000})\)/g;
+/**
+ * A bare address Slack would make a link of: a `scheme://` URL, or a
+ * scheme that runs or mails (`javascript:`, `data:`, `mailto:` …).
+ */
+const BARE_ADDRESS =
+  /\b(?:[a-z][a-z0-9+.-]{1,30}:\/\/|(?:javascript|data|vbscript|file|mailto|tel|slack):)[^\s<>`]+/gi;
+
+/** An address shown as written, in code: Slack makes no link of it. */
+function inert(address: string): string {
+  return `\`${escapeSlack(address.replaceAll("`", "'"))}\``;
+}
+
+/**
+ * The answer's links held to HTTPS, as its sources are (S-306): a Markdown
+ * link to anything but a credential-free `https:` address, and any bare
+ * address that is not one, are kept as code Slack does not link. `link`
+ * writes an HTTPS link in the target's own syntax; `text` escapes the rest.
+ */
+function linksHeldToHttps(
+  answer: string,
+  link: (url: string, label: string) => string,
+  text: (words: string) => string,
+): string {
+  const kept: string[] = [];
+  const hold = (made: string) => {
+    kept.push(made);
+    return `\uE000${kept.length - 1}\uE001`;
+  };
+  const marked = answer
+    .replace(MARKDOWN_LINK, (_, label: string, url: string) =>
+      safeHttpsUrl(url)
+        ? hold(link(url, label))
+        : `${label} ${hold(inert(url))}`,
+    )
+    .replace(BARE_ADDRESS, (address) =>
+      address.toLowerCase().startsWith("https://") && safeHttpsUrl(address)
+        ? address
+        : hold(inert(address)),
+    );
+  return text(marked).replace(
     /\uE000(\d+)\uE001/g,
-    (_, index: string) => links[Number(index)] ?? "",
+    (_, index: string) => kept[Number(index)] ?? "",
+  );
+}
+
+/** Escaped answer words, its Markdown HTTPS links as Slack links, no other link. */
+export function answerMrkdwn(text: string): string {
+  return linksHeldToHttps(text, slackLink, escapeSlack);
+}
+
+/**
+ * Streamed answer words (`markdown_text`), held like `answerMrkdwn`: an HTTPS
+ * Markdown link stays a Markdown link, no other address is a link.
+ */
+export function streamMarkdown(text: string): string {
+  return linksHeldToHttps(
+    text,
+    (url, label) =>
+      `[${escapeSlack(label).replace(/[[\]]/g, "")}](${safeHttpsUrl(url)!.replaceAll(")", "%29")})`,
+    escapeSlack,
   );
 }
 
@@ -126,7 +187,7 @@ export function sectionsOf(mrkdwn: string): KnownBlock[] {
 /** A table as a block: fixed width, its first rows when large, and how many more. */
 export function tableBlocks(
   table: Extract<AnswerPart, { kind: "table" }>,
-  openUrl: string,
+  open: boolean,
 ): KnownBlock[] {
   const rows = table.rows.slice(0, TABLE_PREVIEW_ROWS);
   const widths = table.columns.map((column, index) =>
@@ -167,7 +228,7 @@ export function tableBlocks(
       elements: [
         {
           type: "mrkdwn",
-          text: `${more} more row${more === 1 ? "" : "s"}: ${slackLink(openUrl, "see the whole table in Datalayer")}`,
+          text: `${more} more row${more === 1 ? "" : "s"}: ${open ? `${PRESS_OPEN} to see the whole table` : "the whole table is in the conversation in Datalayer"}.`,
         },
       ],
     });
@@ -182,10 +243,11 @@ export class TurnPresentation extends TurnState {
   /**
    * The message: blocks within Slack's limits and a plain-text fallback for
    * notifications and screen readers. While running, a Stop button names the
-   * run shown (`runId`).
+   * run shown (`runId`). `openValue` is what *Open in Datalayer* carries
+   * (`openValueOf`): no button without one.
    */
   message(
-    openUrl: string,
+    openValue: string,
     options: {
       runId?: string;
       stopValue?: string;
@@ -206,6 +268,7 @@ export class TurnPresentation extends TurnState {
   ): SlackMessage {
     const blocks: KnownBlock[] = [];
     const running = this.running;
+    const open = openValue !== "";
     const parts = answerParts(this.answer);
     const citations = parts.filter(
       (part): part is Extract<AnswerPart, { kind: "citation" }> =>
@@ -214,19 +277,19 @@ export class TurnPresentation extends TurnState {
     for (const part of options.streamed ? [] : parts) {
       if (part.kind === "text")
         blocks.push(...sectionsOf(answerMrkdwn(part.text)));
-      if (part.kind === "table") blocks.push(...tableBlocks(part, openUrl));
+      if (part.kind === "table") blocks.push(...tableBlocks(part, open));
     }
-    // A file is named, never linked by its own address (S-306, decided by
-    // the user 16 October 2026): it opens in the conversation in Datalayer,
-    // through the one-use handoff that needs sign-in. Nothing is uploaded to
-    // Slack, and nothing is public.
+    // A file is named, never linked by its own address (S-306): it opens in
+    // the conversation in Datalayer, through *Open in Datalayer*'s one-use
+    // handoff that needs sign-in, minted on each press. Nothing is uploaded
+    // to Slack, and nothing is public.
     for (const file of this.files)
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
           text: bounded(
-            `${escapeSlack(file.name)}${file.mediaType ? ` (${escapeSlack(file.mediaType)})` : ""}: ${safeHttpsUrl(openUrl) ? slackLink(openUrl, "open it in Datalayer") : "in the conversation in Datalayer"}`,
+            `${escapeSlack(file.name)}${file.mediaType ? ` (${escapeSlack(file.mediaType)})` : ""}: ${open ? `${PRESS_OPEN} to open it` : "in the conversation in Datalayer"}`,
             SLACK_LIMITS.sectionText,
           ),
         },
@@ -264,7 +327,7 @@ export class TurnPresentation extends TurnState {
       });
     if (this.asking)
       blocks.push(
-        ...askBlocks(this.asking, openUrl, options.askValue, options.direct),
+        ...askBlocks(this.asking, open, options.askValue, options.direct),
       );
     const status =
       this.ending === "error"
@@ -329,7 +392,7 @@ export class TurnPresentation extends TurnState {
               },
             ]
           : []),
-        ...(safeHttpsUrl(openUrl)
+        ...(open
           ? [
               {
                 type: "button" as const,
@@ -338,7 +401,9 @@ export class TurnPresentation extends TurnState {
                   type: "plain_text" as const,
                   text: "Open in Datalayer",
                 },
-                url: safeHttpsUrl(openUrl),
+                value: bounded(openValue, SLACK_LIMITS.buttonValue),
+                accessibility_label:
+                  "Open this conversation in Datalayer: a new link, for you only",
               },
             ]
           : []),
@@ -356,7 +421,7 @@ export class TurnPresentation extends TurnState {
               elements: [
                 {
                   type: "mrkdwn",
-                  text: `The rest of this answer is in Datalayer: ${slackLink(openUrl, "Open in Datalayer")}`,
+                  text: `The rest of this answer is in Datalayer: ${open ? `${PRESS_OPEN}.` : "open the conversation there."}`,
                 },
               ],
             } as KnownBlock,
@@ -418,7 +483,7 @@ export function answeredAskBlocks(
 
 function askBlocks(
   question: AskQuestion,
-  openUrl: string,
+  open: boolean,
   askValue?: string,
   direct = false,
 ): KnownBlock[] {
@@ -478,7 +543,7 @@ function askBlocks(
       elements: [
         {
           type: "mrkdwn",
-          text: `This question is answered in Datalayer, where every field is shown: ${slackLink(openUrl, "Answer in Datalayer")}`,
+          text: `This question is answered in Datalayer, where every field is shown: ${open ? `${PRESS_OPEN} to answer it.` : "open the conversation there to answer it."}`,
         },
       ],
     },
