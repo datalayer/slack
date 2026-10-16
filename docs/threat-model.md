@@ -1,0 +1,98 @@
+# Data flow, retention and threat model
+
+S-003 of `plans/SLACK.md` (§9). **Drafted on 16 October 2026; not signed off.**
+The security and privacy owners sign this off before a real workspace token
+is stored (needs_user N7).
+
+## 1. Data flow
+
+```text
+ Slack (workspace W)                     @Datalayer (this service)                       Datalayer
+ ───────────────────                     ─────────────────────────                       ─────────
+ app_mention / message.im ──signed──▶  ingress: verify (raw body, ±5 min)
+   (event id, team, user,                normalize (src/ingress.ts), no network
+    channel, ts, text)                   persist idempotency key + job (1 tx) ──▶ Postgres: slack_jobs,
+                         ◀──── 200 ───   acknowledge                                    slack_event_claims
+                                         worker (src/service.ts):
+                                           installation ─────── store ───────────▶ slack_installations
+                                           linked person ─── host key ─────────────▶ ai-agents …/self/links/{u}
+                                           application ─── allowances / binding ─▶ store
+                                           exchange ───── host key + Slack user ──▶ ai-agents …/self/token
+                                                          ◀─ host token (15 min, aud datalayer:app:host)
+                                           turn ───────── host token, Idempotency-Key ▶ runtime session API
+                                                          ◀─ AG-UI stream (SSE)
+ thread message / stream ◀── bot token ─  render (src/render.ts), rate-limited
+ approval card (DM)      ◀── bot token ─  deliveries (signed push / outbox) ◀──────── ai-agents outbox
+ Approve → modal → submit ──signed──▶   decide as the presser (own exchange) ──────▶ …/approvals/{id}/decision
+ app_uninstalled         ──signed──▶   DELETE …/self, purge                ─────────▶ revocation
+```
+
+What crosses each boundary:
+
+- **Slack to the service:** event ids, workspace, channel and user ids, and
+  the text of a mention or DM. There is no channel history (no history scope)
+  and no file bytes (no file scope).
+- **The service to Datalayer:**
+  - the prompt text, as the linked person;
+  - Slack provenance (team, channel, thread ts, event id), which
+    `external_event_id` and the session's thread target carry;
+  - never the bot token.
+- **Datalayer to the service:**
+  - the answer stream;
+  - approval presentations (display-safe fields, with secrets withheld);
+  - delivery payloads;
+  - never a Datalayer bearer token for a person beyond the fifteen-minute
+    host token held for one turn.
+
+## 2. Retention
+
+| Data                                                     | Where                                                                         | Kept for                                      | Deleted by                                                         |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| Bot token, host key, delivery secret                     | `slack_installations` (AES-256-GCM, key versioned, bound to the installation) | while installed                               | `app_uninstalled`, `tokens_revoked`, owner disconnect (purge)      |
+| Slack ↔ Datalayer link                                  | ai-agents (authoritative); `slack_user_links` only for the development seed   | until unlinked                                | Unlink in App Home, `user_disabled`/`user_not_found`, uninstall    |
+| Thread ↔ session binding, cursors                       | `slack_thread_bindings`                                                       | while installed                               | uninstall (cascade); start over archives it                        |
+| Archived bindings                                        | `slack_thread_binding_history`                                                | while installed                               | uninstall (cascade)                                                |
+| Turn lock, answered event ids                            | `slack_thread_turns`, `slack_finished_events`                                 | while installed                               | uninstall (cascade)                                                |
+| Idempotency claims                                       | `slack_event_claims`                                                          | **not yet bounded** (gap: a purge job by age) | —                                                                  |
+| Queued jobs, including the prompt text                   | `slack_jobs`                                                                  | until handled; dead jobs until replayed       | job deletion on success. **Gap:** no expiry of dead jobs yet       |
+| Held prompts (awaiting an application choice or an edit) | `slack_held_prompts`                                                          | one hour (taken only within it)               | taken once; uninstall. **Gap:** no sweep of expired rows           |
+| Approval cards (ids only)                                | `slack_approval_cards`                                                        | while installed                               | uninstall                                                          |
+| Session transcript, approvals, audit                     | Datalayer (ai-agents, runtime records)                                        | Datalayer's record retention                  | Datalayer's deletion workflow (`/docs/slack#administration`)       |
+| Logs                                                     | stdout (JSON)                                                                 | the cluster's log retention                   | — : no prompt, token, code or id in clear (`src/observability.ts`) |
+
+Slack data is never used to train models.
+
+## 3. Threats, mitigations and tests
+
+Each row names the code that mitigates the threat and the test that holds it,
+or states the gap.
+
+| #   | Threat (§9)                             | Mitigation                                                                                                                                                                                                                                   | Code                                                                                         | Test                                                                                                                                                                                                         |
+| --- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| T1  | **Forged or replayed Slack calls**      | Signature over the raw body in constant time (Bolt); timestamp within five minutes **either way**; events persisted once by id                                                                                                               | Bolt `HTTPReceiver`, `guardRequestTimestamps` (`src/health.ts`), `PostgresWorkQueue.enqueue` | `test/receiver.test.ts`: forged, changed body, replayed −6 min, skewed +6 min, retry not re-enqueued                                                                                                         |
+| T2  | **OAuth CSRF**                          | Signed (HMAC-SHA256), ten-minute, one-use `state` carrying the Ship card's bind code; its nonce claimed in the store; state also in a cookie                                                                                                 | `src/oauth-state.ts`                                                                         | `test/oauth-state.test.ts`: forged, foreign or expired state; spent once                                                                                                                                     |
+| T3  | **Workspace-token substitution**        | The installation comes only from the signed body (`api_app_id`, `team_id`, `enterprise_id`); the bot token is selected by that key; a host key per workspace; one global host key refused outside development                                | `src/ingress.ts`, `BoltSlackPort.#token`, `src/config.ts`                                    | `test/ingress.test.ts` (unsigned installation ignored), `test/config.test.ts`, `test/host-installations.test.ts`                                                                                             |
+| T4  | **Cross-tenant ids**                    | Every record keyed by `(app, enterprise, team)`; delivery targets checked against the receiving installation; modal metadata checked against the submitting workspace                                                                        | `src/store.ts`, `DeliveryHandler.handle`, `CONFIRM_VIEW` handler                             | `test/records.test.ts`, `test/deliveries.test.ts` (target not this workspace's; metadata naming another workspace)                                                                                           |
+| T5  | **Link takeover**                       | One-use, ten-minute link code redeemed by the person signed in to Datalayer, after a preview; ids never trusted from query parameters; Datalayer is the record of links                                                                      | `HostInstallations.connectUrlOf`, ai-agents `confirm_link`                                   | `test/host-installations.test.ts` (one-use code to the confirm page); ai-agents `test_app_hosts`                                                                                                             |
+| T6  | **Mention or prompt injection**         | Slack text is untrusted user input in the turn, never system instructions; the bot mention stripped; output escaped (`&`, `<`, `>`) so `<!channel>` and links are inert; only `https:` links become links                                    | `stripAppMention`, `escapeSlack`, `answerMrkdwn`, `slackLink`                                | `test/presentation.test.ts`, `test/render.test.ts` (citations, `<!channel>`, credentials in URLs)                                                                                                            |
+| T7  | **SSRF and malicious files**            | No file scope and no file fetching in v1; the session stream URL must be HTTPS on the configured Datalayer origin                                                                                                                            | `assertTrustedStreamUrl`                                                                     | `test/agent-client.test.ts` (an untrusted stream URL refused). **Gap:** file intake is not built, and it needs its own scan and size tests when added (S-306)                                                |
+| T8  | **Action replay**                       | Approval buttons carry the approval id and the digest shown; the decision re-reads the presentation as the presser and decides only on the same digest; Stop names the event, session and run, and is refused for any other run              | `src/approval-card.ts`, `DeliveryHandler.decide`, `SlackAgentService.stop`                   | `test/deliveries.test.ts` (approval changed since shown), `test/service.test.ts` (Stop naming another run)                                                                                                   |
+| T9  | **Approval confused deputy**            | Decisions use the presser's own host token, never the installer's or the bot's; only the approval's owner can decide; Slack offers a decision only when the server says a host may decide and the action is shown whole                      | `slackMayDecide`, `HostKeyCredentials.exchangeFor`                                           | `test/approval-card.test.ts`, `test/deliveries.test.ts` (not theirs; as the person who pressed)                                                                                                              |
+| T10 | **Channel disclosure**                  | Setup and refusals are ephemeral in channels; a channel session's approval card goes to its person by DM with only a waiting line in the thread; direct-only applications refused in channels; Slack Connect and shared channels fail closed | `BoltSlackPort.postPrivate`, `TurnRouting.resolve`, `DeliveryHandler`                        | `test/service.test.ts` (private refusals, direct-only, Slack Connect), `test/deliveries.test.ts` (private card, waiting line)                                                                                |
+| T11 | **Queue duplication**                   | Ingress idempotency (key and job in one transaction); one turn per thread; answered events remembered; Datalayer's `Idempotency-Key` replays rather than runs                                                                                | `PostgresWorkQueue.enqueue`, `beginTurn`/`endTurn`, agent-runtimes external turns            | `test/receiver.test.ts` (retry), `test/records.test.ts` (memory and Postgres), `test/service.test.ts` (duplicates, concurrent duplicates)                                                                    |
+| T12 | **Stream reordering**                   | One message per turn, updated in order by one worker; a resumed turn reuses its message; the final state replaces all partial states                                                                                                         | `TurnRenderer`, `ThreadTurn.messageTs`                                                       | `test/service.test.ts` (crash resumed into the same message), `test/render.test.ts`. **Gap:** deliveries racing a live stream rely on `pendingMessageTs`; there is no ordering test across the two paths yet |
+| T13 | **Uninstall races**                     | Every job re-reads the installation and drops work for an inactive one; Slack calls refuse an inactive installation's token; purge even when Datalayer cannot be told                                                                        | `SlackAgentService.handlePrompt`, `SlackWorker.*`, `HostInstallations.uninstall`             | `test/worker.test.ts` (queued mention, action, edit; uninstall mid-stream), `test/deliveries.test.ts` (late delivery), `test/host-installations.test.ts`                                                     |
+| T14 | **Secrets in logs, metrics and traces** | Redacting JSON logger; pseudonymous ids; spans carry no words                                                                                                                                                                                | `src/observability.ts`                                                                       | `test/operations.test.ts` (tokens, codes, keys, words and ids never written)                                                                                                                                 |
+| T15 | **A person gone from Slack**            | Slack's `user_disabled`/`user_not_found`/`account_inactive` unlinks them at Datalayer and audits it                                                                                                                                          | `SlackAgentService.privately`                                                                | `test/service.test.ts`. **Gap:** without `users:read`, a deactivation is seen only at the next private message to that person                                                                                |
+| T16 | **Supply chain**                        | No Jupyter, Lumino or browser UI in the production graph; exact versions; `npm audit --omit=dev` and gitleaks in CI                                                                                                                          | `scripts/forbidden-graph.mjs`, `.github/workflows/ci.yml`                                    | `test/forbidden-graph.test.ts`                                                                                                                                                                               |
+
+## 4. Open items before sign-off
+
+1. Purge jobs for idempotency claims, dead jobs and expired held prompts
+   (retention gaps above).
+2. File intake, when added (T7).
+3. An ordering test between a live stream and a `turn.completed` delivery
+   (T12).
+4. Staging drills: token rotation, uninstall with queued jobs, and both
+   dependency outages (§12.1, S-502).
+5. Named security and privacy owners to sign this off (N7).
