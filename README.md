@@ -350,6 +350,57 @@ DATALAYER_DEV_HOST_TOKEN="${DATALAYER_API_KEY}" npm run dev:socket
 
 If the Datalayer host contract is available, the `_Working…_` placeholder is progressively replaced by the answer. If it is unavailable, see the terminal error and the troubleshooting table below; do not interpret the placeholder as a successful run.
 
+### 9. Bind the development app to r1 (its own host key)
+
+Development mode's key (`DATALAYER_DEV_HOST_TOKEN`) answers turns, but it binds nothing: no session is mapped, so approvals, finished turns and other deliveries never reach Slack, App Home cannot link a person, and the channel rules and handoffs have no installation to apply to. To try those with `Datalayer Dev` over Socket Mode, give it a real host installation on r1, as the Ship card does for a deployed workspace. You need your Datalayer API key, the uid of a deployment you own that is kept always on, and the `SLACK_APP_ID` and `SLACK_TEAM_ID` of your `.env`.
+
+1. **Set up the installation** as the deployment's owner. The answer holds a one-use bind code, valid ten minutes; it is kept in a shell variable, never printed:
+
+   ```bash
+   API=https://r1.datalayer.run/api/ai-agents/v1/apps/hosts
+   DEPLOYMENT=your-deployment-uid
+   CODE=$(curl --fail-with-body -sS -X POST "$API" \
+     -H "Authorization: Bearer ${DATALAYER_API_KEY}" -H 'content-type: application/json' \
+     -d "{\"kind\":\"slack\",\"name\":\"Datalayer Dev\",\"deployments\":[\"$DEPLOYMENT\"],\"default_deployment\":\"$DEPLOYMENT\"}" \
+     | jq -r .bind_code)
+   test -n "$CODE" && [ "$CODE" != null ] && echo "bind code received"
+   ```
+
+2. **Bind it as the workspace.** The external id is `<app id>:-:<team id>` (`-` when there is no Enterprise Grid). The host key is answered once, so it goes straight to `.env`:
+
+   ```bash
+   set -a; . ./.env; set +a
+   KEY=$(curl --fail-with-body -sS -X POST "$API/bind" -H 'content-type: application/json' \
+     -d "{\"code\":\"$CODE\",\"external_id\":\"${SLACK_APP_ID}:-:${SLACK_TEAM_ID}\",\"name\":\"Datalayer Dev\"}" \
+     | jq -r .host_key)
+   test -n "$KEY" && [ "$KEY" != null ] && printf 'DATALAYER_HOST_KEY=%s\n' "$KEY" >> .env && echo "host key saved to .env"
+   unset CODE KEY
+   ```
+
+   A spent or expired code answers an error and saves nothing: run step 1 again.
+
+3. **Restart** `make dev-socket` (with `DATALAYER_API_URL=https://r1.datalayer.run` in `.env`). With `DATALAYER_HOST_KEY` set, every turn goes through the host credential exchange for the linked Slack member, and the outbox is read every `DATALAYER_DELIVERY_POLL_SECONDS` (30): Socket Mode needs no public address for deliveries.
+
+4. **Link yourself.** Open **Datalayer Dev → Home** in Slack and choose _Connect your Datalayer account_. It opens `/hosts/link?code=…` on `DATALAYER_WEB_URL`; that page must reach r1's ai-agents (a landing whose API is r1). If yours reaches another plane, copy the `code` from the opened address and confirm it yourself within ten minutes:
+
+   ```bash
+   curl --fail-with-body -sS -X POST "$API/links" \
+     -H "Authorization: Bearer ${DATALAYER_API_KEY}" -H 'content-type: application/json' \
+     -d '{"code":"the-code-from-the-address"}' | jq '{success, host: .host.name}'
+   ```
+
+   App Home then says you are connected. Each other person links the same way, with their own key.
+
+5. **Try it:** a prompt in a direct message or a mention, then a tool that asks approval (the card, privately in a channel), a decision in Datalayer's Tool Approvals (every card updated).
+
+To end the installation, uninstall the app in Slack (it calls `DELETE …/self`), or end it yourself and remove the key:
+
+```bash
+curl --fail-with-body -sS -X DELETE "$API/self" \
+  -H "X-Datalayer-Host-Key: $(sed -n 's/^DATALAYER_HOST_KEY=//p' .env)" >/dev/null && echo ended
+sed -i '/^DATALAYER_HOST_KEY=/d' .env
+```
+
 ## HTTP and OAuth development
 
 Use this path to test public HTTPS ingress, multi-workspace installation, encrypted credentials, token rotation and uninstall cleanup. It requires a public HTTPS tunnel and PostgreSQL.
