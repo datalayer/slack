@@ -155,7 +155,7 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
   it("lists dead letters by metadata and hash, replays once, and reads a payload only for a reason, audited", async () => {
     const queue = new PostgresWorkQueue<unknown>(database);
     const payload = {
-      prompt: { text: "my salary is 100k", token: "xoxb-123456789012-secret" },
+      prompt: { text: "my salary is 100k", token: "xoxb-123456789012-secret" }, // gitleaks:allow — a fake token the redaction test must strip
     };
     const inserted = await database.query<{ id: string }>(
       "INSERT INTO slack_jobs (payload, state, attempts, last_error) VALUES ($1, 'dead', 5, $2) RETURNING id::text",

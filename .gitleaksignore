@@ -1,0 +1,2 @@
+# A fake bot token in the redaction test (not a credential); the line now carries gitleaks:allow.
+37992928e95478ea8950ea5984c36576eaa62c9d:test/operations-quotas.test.ts:generic-api-key:158
