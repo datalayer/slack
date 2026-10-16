@@ -253,11 +253,18 @@ export class SlackAgentService {
       throw error;
     }
 
+    // *Open in Datalayer* is a one-use handoff to this conversation (S-305),
+    // or no button at all: never a guessed address.
     const openUrl = this.options.openUrlOf
       ? await this.options
           .openUrlOf(turn.sessionId, request)
-          .catch(() => this.#sessionUrl(turn.sessionId))
-      : this.#sessionUrl(turn.sessionId);
+          .catch((error: unknown) => {
+            this.logger.warn("turn.handoff_failed", {
+              error_name: error instanceof Error ? error.name : "unknown",
+            });
+            return "";
+          })
+      : "";
     const renderer = new TurnRenderer(this.#paced, this.limiter, prompt, {
       askValue: prompt.eventId,
       cadenceMs: this.options.cadenceMs,
@@ -381,10 +388,6 @@ export class SlackAgentService {
       sessionId: value.s,
     });
     return "stopped";
-  }
-
-  #sessionUrl(sessionId: string): string {
-    return `${this.webUrl.replace(/\/+$/, "")}/loop/session/${encodeURIComponent(sessionId)}`;
   }
 }
 

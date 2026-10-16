@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HostRefusedError } from "../src/host-client.js";
-import { STOP_ACTION } from "../src/presentation.js";
+import { OPEN_ACTION, STOP_ACTION } from "../src/presentation.js";
 import { SlackAgentService, type StopValue } from "../src/service.js";
 import type { SemanticEvent } from "../src/semantic.js";
 import type { MemorySlackStore } from "../src/store.js";
@@ -436,5 +436,38 @@ describe("people gone from Slack and late work (S-103, S-106)", () => {
     );
     expect(run.agents.requests).toHaveLength(0);
     expect(run.slack.calls).toHaveLength(0);
+  });
+});
+
+describe("Open in Datalayer (S-305)", () => {
+  it("is the one-use handoff, or no button at all: never a guessed address", async () => {
+    for (const [openUrlOf, expected] of [
+      [async () => "https://datalayer.ai/hosts/open?code=dlho_x", true],
+      [
+        async () => {
+          throw new HostRefusedError(503, "down", "handoff");
+        },
+        false,
+      ],
+    ] as const) {
+      const store = await installedStore({ defaultApplication: "dep-1" });
+      const slack = new FakeSlack();
+      const { lines, logger } = keptLogger();
+      const service = new SlackAgentService(
+        store,
+        new FakeAgents(),
+        slack,
+        "https://datalayer.ai",
+        new FakeLinks(),
+        { clock: new FakeClock(), logger, openUrlOf },
+      );
+      await service.handlePrompt(promptOf(), "B1");
+      const final = JSON.stringify(slack.of("chat.update").at(-1)?.message);
+      expect(final).not.toContain("/loop/");
+      expect(final.includes(OPEN_ACTION)).toBe(expected);
+      if (expected)
+        expect(final).toContain("https://datalayer.ai/hosts/open?code=dlho_x");
+      else expect(lines.join("\n")).toContain("turn.handoff_failed");
+    }
   });
 });

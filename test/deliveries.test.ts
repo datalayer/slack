@@ -522,8 +522,8 @@ describe("approval.decided and turn.completed", () => {
     );
   });
 
-  it("finishes the thread's status with the session's answer", async () => {
-    const { handler, slack, store } = await setup({
+  it("finishes the thread's status with the session's answer, opened through a one-use handoff (S-305)", async () => {
+    const { calls, handler, slack, store } = await setup({
       [`GET ${exchanged.session_api.url}/S1/messages`]: () =>
         Response.json({ messages: [{ role: "assistant", content: "Sent." }] }),
       [route("ack", { delivery_uid: "d3" })]: () =>
@@ -561,6 +561,13 @@ describe("approval.decided and turn.completed", () => {
       expect.objectContaining({ channelId: "D0ALICE", ts: "5.0" }),
     ]);
     expect(slack.updates[0]?.message.text).toContain("Sent.");
+    // The conversation through its person's own handoff, never a guessed path.
+    const made = calls.find((call) => call.key === route("handoff"));
+    expect(made?.body).toEqual({ kind: "session", target: "S1" });
+    expect(slack.updates[0]?.message.text).toContain(
+      "<https://datalayer.ai/hosts/open?code=dlho_card|Open in Datalayer>",
+    );
+    expect(slack.updates[0]?.message.text).not.toContain("/loop/");
     await expect(store.getThread(thread)).resolves.toMatchObject({
       pendingMessageTs: undefined,
     });

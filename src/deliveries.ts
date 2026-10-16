@@ -23,7 +23,7 @@ import {
   type DeliveryTarget,
   type HostDelivery,
 } from "./host-contracts.js";
-import { safeSlackText } from "./presentation.js";
+import { safeSlackText, slackLink } from "./presentation.js";
 import type { SlackPort } from "./slack-port.js";
 import type { SlackStore } from "./store.js";
 
@@ -256,17 +256,26 @@ export class DeliveryHandler {
     const binding = await this.store.getThread(thread);
     if (!binding?.pendingMessageTs || binding.sessionId !== payload.session_uid)
       return; // its answer was already shown as it streamed
-    const host = hostSessionOf(
-      await this.#session(installation, target.userId, payload.deployment_uid),
+    const exchanged = await this.#session(
+      installation,
+      target.userId,
+      payload.deployment_uid,
     );
+    const host = hostSessionOf(exchanged);
     const text = await lastAnswer(
       this.fetchImplementation,
       host,
       payload.session_uid,
     );
-    const openUrl = `${this.webUrl}/loop/session/${encodeURIComponent(payload.session_uid)}`;
+    // *Open in Datalayer* opens this very conversation, for its person, once (S-305).
+    const opened = await this.client.handoff(
+      exchanged.access_token,
+      "session",
+      payload.session_uid,
+    );
+    const openUrl = `${this.webUrl.replace(/\/+$/, "")}${opened.path}`;
     await this.slack.updateMessage(thread, binding.pendingMessageTs, {
-      text: `${text ? safeSlackText(text) : "_Finished in Datalayer._"}\n\n<${openUrl}|Open in Datalayer>`,
+      text: `${text ? safeSlackText(text) : "_Finished in Datalayer._"}\n\n${slackLink(openUrl, "Open in Datalayer")}`,
     });
     await this.store.putThread({
       ...binding,

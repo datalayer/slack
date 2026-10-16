@@ -18,7 +18,7 @@ import {
   rateLimited,
 } from "./support/fakes.js";
 
-const OPEN = "https://datalayer.ai/loop/session/S1";
+const OPEN = "https://datalayer.ai/hosts/open?code=dlho_s1";
 
 function rendererOf(slack: FakeSlack, clock = new FakeClock()) {
   const limiter = new SlackRateLimiter(clock);
