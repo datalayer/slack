@@ -56,12 +56,11 @@ export class FakeSlack implements SlackPort {
           this.#maybeFail("chat.appendStream");
           this.calls.push({ key, markdown, method: "chat.appendStream", ts });
         },
-        start: async (key, userId, markdown) => {
+        start: async (key, userId) => {
           this.#maybeFail("chat.startStream");
           const ts = this.#next();
           this.calls.push({
             key,
-            markdown,
             method: "chat.startStream",
             ts,
             userId,

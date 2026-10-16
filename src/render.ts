@@ -21,6 +21,18 @@ export const PUBLISH_CADENCE_MS = 1_500;
 export const STREAM_LIMITS = { chunk: 12_000, total: 38_000 } as const;
 export const STREAM_REST = "\n\n… The rest of this answer is in Datalayer.";
 
+/**
+ * Where to cut escaped text at or before `at` without splitting an entity
+ * (`&amp;`, `&lt;`, `&gt;`): a cut inside one moves to its `&`.
+ */
+export function entitySafeCut(text: string, at: number): number {
+  if (at >= text.length) return text.length;
+  const amp = text.lastIndexOf("&", at - 1);
+  if (amp < 0) return at;
+  const semi = text.indexOf(";", amp);
+  return semi >= at && semi - amp <= 4 ? amp : at;
+}
+
 /** Slack refused the call itself (`ok: false`), as opposed to a network or rate failure. */
 function slackRefusalOf(error: unknown): string | undefined {
   const value = error as
@@ -96,12 +108,8 @@ export class TurnRenderer {
         this.#ts = await this.limiter.run(
           "chat.startStream",
           this.key.channelId,
-          () =>
-            streaming.start(
-              this.key,
-              this.options.recipientUserId,
-              "_Working…_",
-            ),
+          // No seed: what the stream starts with stays in the answer.
+          () => streaming.start(this.key, this.options.recipientUserId),
         );
         this.#streaming = true;
       } catch (error) {
@@ -124,8 +132,17 @@ export class TurnRenderer {
   }
 
   async apply(event: SemanticEvent): Promise<void> {
+    const before = this.presentation.answer.length;
     this.presentation.apply(event);
-    if (event.kind === "text") this.#pendingText += event.text;
+    // The stream carries every part of the answer the stop blocks leave out:
+    // words, a table event's table, a completion's text standing in for
+    // none (a replayed turn). Citations are the stop's Sources line.
+    if (
+      event.kind === "text" ||
+      event.kind === "table" ||
+      event.kind === "completion"
+    )
+      this.#pendingText += this.presentation.answer.slice(before);
     this.#dirty = true;
     if (this.presentation.ended) return;
     if (this.#clock.now() - this.#lastPublished >= this.#cadence)
@@ -184,15 +201,20 @@ export class TurnRenderer {
     if (this.#streamCut) return;
     const room = STREAM_LIMITS.total - this.#streamed;
     if (text.length > room) {
-      text = `${text.slice(0, Math.max(0, room))}${STREAM_REST}`;
+      text = `${text.slice(0, entitySafeCut(text, Math.max(0, room)))}${STREAM_REST}`;
       this.#streamCut = true;
     }
-    for (let at = 0; at < text.length; at += STREAM_LIMITS.chunk) {
-      const chunk = text.slice(at, at + STREAM_LIMITS.chunk);
+    for (let at = 0; at < text.length; ) {
+      const end =
+        at + STREAM_LIMITS.chunk >= text.length
+          ? text.length
+          : entitySafeCut(text, at + STREAM_LIMITS.chunk);
+      const chunk = text.slice(at, end);
       await this.limiter.run("chat.appendStream", this.key.channelId, () =>
         streaming.append(this.key, ts, chunk),
       );
       this.#streamed += chunk.length;
+      at = end;
     }
   }
 

@@ -12,7 +12,12 @@ import {
   retryingSlackPort,
   SlackRateLimiter,
 } from "../src/rate-limit.js";
-import { STREAM_LIMITS, STREAM_REST, TurnRenderer } from "../src/render.js";
+import {
+  entitySafeCut,
+  STREAM_LIMITS,
+  STREAM_REST,
+  TurnRenderer,
+} from "../src/render.js";
 import {
   FakeClock,
   FakeSlack,
@@ -59,6 +64,75 @@ describe("a streamed answer (S-206, the review of 16 October 2026)", () => {
     expect(blocks).toContain("Sources: <https://datalayer.ai/notes|the notes>");
     expect(blocks).toContain(OPEN_ACTION);
     expect(blocks).toContain(THREAD_MENU_ACTION);
+  });
+
+  it("starts empty, so no seed stays in the answer or its fallback", async () => {
+    const slack = new FakeSlack({ streaming: true });
+    const { renderer } = streamed(slack);
+    await renderer.begin();
+    await renderer.apply({ kind: "text", text: "Option B." });
+    await renderer.apply({ kind: "completion" });
+    await renderer.finish();
+    const [start] = slack.of("chat.startStream");
+    expect(start?.markdown).toBeUndefined();
+    const appended = slack
+      .of("chat.appendStream")
+      .map((call) => call.markdown)
+      .join("");
+    expect(appended).toBe("Option B.");
+    expect(JSON.stringify(slack.calls)).not.toContain("Working");
+  });
+
+  it("streams a table event and a replayed turn's completion text, which the stop leaves out", async () => {
+    const slack = new FakeSlack({ streaming: true });
+    const { renderer } = streamed(slack);
+    await renderer.begin();
+    await renderer.apply({ kind: "text", text: "Totals:" });
+    await renderer.apply({
+      columns: ["Region", "Sales"],
+      kind: "table",
+      rows: [["EU", "12"]],
+    });
+    await renderer.apply({ kind: "completion" });
+    await renderer.finish();
+    const appended = slack
+      .of("chat.appendStream")
+      .map((call) => call.markdown)
+      .join("");
+    expect(appended).toContain("Totals:");
+    expect(appended).toContain("| Region | Sales |");
+    expect(appended).toContain("| EU | 12 |");
+
+    // A replayed turn yields only its completion's text: streamed, not lost.
+    const replay = new FakeSlack({ streaming: true });
+    const again = streamed(replay).renderer;
+    await again.begin();
+    await again.apply({ kind: "completion", text: "Option B, as before." });
+    await again.finish();
+    expect(
+      replay
+        .of("chat.appendStream")
+        .map((call) => call.markdown)
+        .join(""),
+    ).toBe("Option B, as before.");
+  });
+
+  it("never cuts an append or the stream inside an escaped entity", async () => {
+    expect(entitySafeCut("a &amp; b", 4)).toBe(2);
+    expect(entitySafeCut("a &amp; b", 7)).toBe(7);
+    expect(entitySafeCut("a & b", 3)).toBe(3);
+    const slack = new FakeSlack({ streaming: true });
+    const { renderer } = streamed(slack);
+    await renderer.begin();
+    // "&" escapes to "&amp;" (5): 2,399 of them, then "x", put an entity across 12,000.
+    await renderer.apply({ kind: "text", text: `x${"&".repeat(2_500)}` });
+    await renderer.apply({ kind: "completion" });
+    await renderer.finish();
+    const appends = slack.of("chat.appendStream").map((call) => call.markdown);
+    for (const chunk of appends) {
+      expect(chunk?.startsWith("&amp;") || chunk?.startsWith("x")).toBe(true);
+      expect(chunk?.endsWith("&amp;")).toBe(true);
+    }
   });
 
   it("bounds every append and the whole stream, saying once that the rest is in Datalayer", async () => {

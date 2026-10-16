@@ -2,6 +2,7 @@ import { App } from "@slack/bolt";
 import type { KnownBlock } from "@slack/types";
 import { describe, expect, it } from "vitest";
 
+import { APPROVE_ACTION } from "../src/approval-card.js";
 import { registerSlackListeners } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
 import { MemoryWorkQueue } from "@datalayer/agent-runtimes/lib/portable/hosts";
@@ -317,5 +318,33 @@ describe("A choice answered once through the Bolt handlers (S-307)", () => {
       "This question was already answered.",
       "This question was already answered.",
     ]);
+  });
+});
+
+describe("the approval confirmation modal (S-206)", () => {
+  it("opens through the limiter's retry, so a 429 waits Slack's Retry-After", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const { press, service } = boltOf(store);
+    const retried: string[] = [];
+    // Recorded, not sent: the modal's call is the limiter's to pace.
+    service.limiter.retry = async <T>(method: string): Promise<T> => {
+      retried.push(method);
+      return undefined as T;
+    };
+    await press({
+      actions: [
+        {
+          action_id: APPROVE_ACTION,
+          action_ts: "8.1",
+          type: "button",
+          value: JSON.stringify({ a: "ap-1", d: "a".repeat(64), p: "dep-1" }),
+        },
+      ],
+      channel: { id: "D1" },
+      message: { blocks: [], text: "Approve?", ts: "4.0" },
+      trigger_id: "trigger-1",
+      user: { id: "U1", team_id: "T1" },
+    });
+    expect(retried).toEqual(["views.open"]);
   });
 });

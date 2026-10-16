@@ -99,10 +99,9 @@ export class BoltSlackPort implements SlackPort {
             ts,
           });
         },
-        start: async (key, recipientUserId, markdown) => {
+        start: async (key, recipientUserId) => {
           const response = await this.client.chat.startStream({
             channel: key.channelId,
-            markdown_text: markdown,
             recipient_team_id: key.teamId,
             recipient_user_id: recipientUserId,
             thread_ts: key.threadTs,
@@ -627,19 +626,23 @@ export function registerSlackListeners(
         const blocks = (body.message as { blocks?: unknown[] } | undefined)
           ?.blocks;
         const header = blocks?.[0] as { text?: { text?: string } } | undefined;
-        await client.views.open({
-          trigger_id: body.trigger_id,
-          view: confirmModal(
-            {
-              ...value,
-              app: body.api_app_id,
-              approve,
-              ent: body.enterprise?.id ?? undefined,
-              team: teamId,
-            },
-            header?.text?.text ?? "this action",
-          ),
-        });
+        const triggerId = body.trigger_id;
+        // A 429 waits Slack's Retry-After like every other call (S-206).
+        await service.limiter.retry("views.open", body.user.id, () =>
+          client.views.open({
+            trigger_id: triggerId,
+            view: confirmModal(
+              {
+                ...value,
+                app: body.api_app_id,
+                approve,
+                ent: body.enterprise?.id ?? undefined,
+                team: teamId,
+              },
+              header?.text?.text ?? "this action",
+            ),
+          }),
+        );
       } catch (error) {
         logger.error("Failed to open the approval confirmation", error);
       }

@@ -69,17 +69,15 @@ describe("Slack's text streaming (S-206)", () => {
     expect(new BoltSlackPort(client, store).streaming).toBeUndefined();
     const port = new BoltSlackPort(client, store, { streaming: true });
     const key = { appId: "A1", channelId: "C1", teamId: "T1", threadTs: "1.0" };
-    await expect(port.streaming?.start(key, "U1", "_Working…_")).resolves.toBe(
-      "9.0",
-    );
+    await expect(port.streaming?.start(key, "U1")).resolves.toBe("9.0");
     await port.streaming?.append(key, "9.0", "Option B");
     await port.streaming?.stop(key, "9.0", {
       blocks: [{ type: "divider" }],
       text: "Option B",
     });
+    // Started empty: no seed stays in the answer (S-206).
     expect(startStream).toHaveBeenCalledWith({
       channel: "C1",
-      markdown_text: "_Working…_",
       recipient_team_id: "T1",
       recipient_user_id: "U1",
       thread_ts: "1.0",

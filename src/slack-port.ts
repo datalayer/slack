@@ -13,11 +13,8 @@ export type SlackMessage = Readonly<{
  * placeholder is updated at a bounded cadence.
  */
 export interface SlackStreaming {
-  start(
-    key: ThreadKey,
-    recipientUserId: string,
-    markdown: string,
-  ): Promise<string>;
+  /** Start the stream empty: whatever it starts with stays in the answer. */
+  start(key: ThreadKey, recipientUserId: string): Promise<string>;
   append(key: ThreadKey, ts: string, markdown: string): Promise<void>;
   stop(key: ThreadKey, ts: string, message: SlackMessage): Promise<void>;
 }

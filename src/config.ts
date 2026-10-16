@@ -65,12 +65,13 @@ const schema = z
       .positive()
       .default(600),
     /**
-     * Stream answers with chat.startStream (S-206): on where the workspaces'
-     * plans offer Slack's agent streaming; off, a placeholder is updated.
+     * Stream answers with chat.startStream when available (S-206): on, a
+     * workspace whose plan or settings refuse streaming gets the bounded
+     * placeholder instead (`TurnRenderer.begin`); off, never streamed.
      */
     DATALAYER_SLACK_STREAMING: z
       .enum(["true", "false"])
-      .default("false")
+      .default("true")
       .transform((value) => value === "true"),
     /**
      * Optional thread context (S-401, ADR 0003): off unless turned on here,
