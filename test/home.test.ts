@@ -271,17 +271,20 @@ describe("How answers show their work, per person (S-308)", () => {
         undefined,
         events,
       );
-      const radio = view.blocks
-        .flatMap((block) => (block.type === "actions" ? block.elements : []))
-        .find(
-          (element) =>
-            (element as { action_id?: string }).action_id === EVENTS_ACTION,
-        ) as
-        | {
-            initial_option?: { value: string };
-            options: Array<{ value: string; text: { text: string } }>;
-          }
-        | undefined;
+      // Read as plain data: the elements, whatever their Block Kit type.
+      const blocks = JSON.parse(JSON.stringify(view.blocks)) as Array<{
+        type: string;
+        elements?: Array<{
+          action_id?: string;
+          initial_option?: { value: string };
+          options: Array<{ value: string; text: { text: string } }>;
+        }>;
+      }>;
+      const radio = blocks
+        .flatMap((block) =>
+          block.type === "actions" ? (block.elements ?? []) : [],
+        )
+        .find((element) => element.action_id === EVENTS_ACTION);
       expect(radio?.options.map((one) => one.text.text)).toEqual([
         HOME_WORDS.quiet,
         HOME_WORDS.noisy,
