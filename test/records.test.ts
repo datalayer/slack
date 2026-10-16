@@ -347,9 +347,25 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       expect(await store.takeHeldPrompt(key, "Ev9", "U1")).toBeUndefined();
     });
 
+    it("keeps each person's quiet or noisy choice, per installation (S-308)", async () => {
+      await reset();
+      await installed(store);
+      await installed(store, "T2");
+      const other = { ...key, teamId: "T2" };
+      expect(await store.getEventPolicy(key, "U1")).toBeUndefined();
+      await store.putEventPolicy(key, "U1", "noisy");
+      await store.putEventPolicy(other, "U1", "quiet");
+      expect(await store.getEventPolicy(key, "U1")).toBe("noisy");
+      expect(await store.getEventPolicy(other, "U1")).toBe("quiet");
+      expect(await store.getEventPolicy(key, "U2")).toBeUndefined();
+      await store.putEventPolicy(key, "U1", "quiet");
+      expect(await store.getEventPolicy(key, "U1")).toBe("quiet");
+    });
+
     it("forgets every record of an uninstalled workspace", async () => {
       await reset();
       await installed(store);
+      await store.putEventPolicy(key, "U1", "noisy");
       await store.putChannelBindings(key, [
         {
           ...key,
@@ -370,6 +386,7 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       expect(await store.getChannelBinding(key, "C1")).toBeUndefined();
       expect(await store.getTurn(thread)).toBeUndefined();
       expect(await store.takeHeldPrompt(key, "Ev2", "U1")).toBeUndefined();
+      expect(await store.getEventPolicy(key, "U1")).toBeUndefined();
     });
 
     it("enqueues a job once per idempotency key", async () => {

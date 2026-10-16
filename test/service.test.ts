@@ -587,3 +587,41 @@ describe("Open in Datalayer (S-305, S-306)", () => {
     expect(final).not.toContain("/loop/");
   });
 });
+
+describe("A person's own quiet or noisy choice (S-308)", () => {
+  it("is read before the service's default when their answer is shown", async () => {
+    const tools = () => ({
+      run: { id: "t1" },
+      sessionId: "S-0",
+      updates: streamOf(
+        { kind: "tool", id: "c1", name: "search", status: "running" },
+        { kind: "tool", id: "c1", name: "search", status: "complete" },
+        { kind: "text", text: "Done." },
+        { kind: "completion" },
+      ),
+    });
+    for (const [chosen, listed] of [
+      [undefined, false],
+      ["noisy", true],
+    ] as const) {
+      const store = await installedStore({ defaultApplication: "dep-1" });
+      if (chosen) await store.putEventPolicy(promptOf(), "U1", chosen);
+      const slack = new FakeSlack();
+      const service = new SlackAgentService(
+        store,
+        new FakeAgents(tools),
+        slack,
+        "https://datalayer.ai",
+        new FakeLinks(),
+        {
+          clock: new FakeClock(),
+          events: "quiet",
+          logger: keptLogger().logger,
+        },
+      );
+      await service.handlePrompt(promptOf(), "B1");
+      const final = JSON.stringify(slack.of("chat.update").at(-1)?.message);
+      expect(final.includes("✓ search")).toBe(listed);
+    }
+  });
+});

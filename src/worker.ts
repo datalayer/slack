@@ -11,6 +11,7 @@ import {
 
 import type { DeliveryHandler } from "./deliveries.js";
 import type {
+  EventPolicy,
   IncomingPrompt,
   SlackInstallationKey,
   StarterSource,
@@ -151,8 +152,23 @@ export class SlackWorker {
       this.service.links,
       { limit: limits.user, used, window: "hour" },
       this.parts.starters,
+      (await this.store.getEventPolicy(key, userId)) ??
+        this.service.options.events ??
+        "quiet",
     );
     await this.parts.publishHome?.(key, userId, view);
+  }
+
+  /** A person chose quiet or noisy answers on their Home (S-308): kept, and their Home shown again. */
+  async choseEvents(
+    key: SlackInstallationKey,
+    userId: string,
+    events: EventPolicy,
+  ): Promise<void> {
+    const installation = await this.store.getInstallation(key);
+    if (!installation || installation.status !== "active") return;
+    await this.store.putEventPolicy(key, userId, events);
+    await this.home(key, userId);
   }
 
   /**

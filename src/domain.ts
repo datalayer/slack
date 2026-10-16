@@ -89,6 +89,9 @@ export type AppAllowance = SlackInstallationKey &
   }>;
 
 /** A channel's own rule (`slack_channel_binding`): denied, or its default application. */
+/** How an answer shows its work (S-308): one status line, or every tool listed. */
+export type EventPolicy = "quiet" | "noisy";
+
 export type ChannelBinding = SlackInstallationKey &
   Readonly<{
     channelId: string;

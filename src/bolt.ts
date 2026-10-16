@@ -42,6 +42,7 @@ import { guardRequestTimestamps } from "./health.js";
 import {
   CONNECT_ACTION,
   DOCS_ACTION,
+  EVENTS_ACTION,
   SUPPORT_ACTION,
   UNLINK_ACTION,
 } from "./home.js";
@@ -704,6 +705,28 @@ export function registerSlackListeners(
         });
     } catch (error) {
       logger.error("Failed to send the edited text", error);
+    }
+  });
+
+  // Quiet or noisy answers, the person's own choice on their Home (S-308).
+  app.action(EVENTS_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const pressed = action.actions[0];
+      const key = installationKeyOf({
+        api_app_id: action.api_app_id,
+        enterprise_id: action.enterprise?.id,
+        team_id: action.team?.id ?? action.user.team_id,
+      });
+      const chosen =
+        pressed?.type === "radio_buttons"
+          ? pressed.selected_option?.value
+          : undefined;
+      if (!key || (chosen !== "quiet" && chosen !== "noisy")) return;
+      await worker.choseEvents(key, action.user.id, chosen);
+    } catch (error) {
+      logger.error("Failed to keep the answers' choice", error);
     }
   });
 

@@ -9,6 +9,7 @@ import {
   type AppAllowance,
   type IncomingPrompt,
   type ChannelBinding,
+  type EventPolicy,
   type SlackDelivery,
   type ThreadTurn,
   type TurnClaim,
@@ -91,6 +92,16 @@ export interface SlackStore extends QuotaStore {
     key: SlackInstallationKey,
     channelId: string,
   ): Promise<ChannelBinding | undefined>;
+  /** A person's own quiet or noisy choice (S-308), when they made one. */
+  getEventPolicy(
+    key: SlackInstallationKey,
+    slackUserId: string,
+  ): Promise<EventPolicy | undefined>;
+  putEventPolicy(
+    key: SlackInstallationKey,
+    slackUserId: string,
+    events: EventPolicy,
+  ): Promise<void>;
   /**
    * Replace the installation's channel rules with Datalayer's set (S-403):
    * a rule Datalayer dropped is gone here too.
@@ -176,6 +187,7 @@ export class MemorySlackStore implements SlackStore {
   readonly #threads = new Map<string, ThreadBinding>();
   readonly #allowances = new Map<string, AppAllowance[]>();
   readonly #channels = new Map<string, ChannelBinding>();
+  readonly #policies = new Map<string, EventPolicy>();
   readonly #deliveries = new Map<string, SlackDelivery>();
   readonly #archived = new Map<string, ThreadBinding[]>();
   readonly #turns = new Map<string, ThreadTurn>();
@@ -204,6 +216,7 @@ export class MemorySlackStore implements SlackStore {
       this.#threads,
       this.#cards,
       this.#channels,
+      this.#policies,
       this.#deliveries,
       this.#archived,
       this.#turns,
@@ -323,6 +336,21 @@ export class MemorySlackStore implements SlackStore {
     channelId: string,
   ): Promise<ChannelBinding | undefined> {
     return this.#channels.get(`${installationKey(key)}:${channelId}`);
+  }
+
+  async getEventPolicy(
+    key: SlackInstallationKey,
+    slackUserId: string,
+  ): Promise<EventPolicy | undefined> {
+    return this.#policies.get(`${installationKey(key)}:${slackUserId}`);
+  }
+
+  async putEventPolicy(
+    key: SlackInstallationKey,
+    slackUserId: string,
+    events: EventPolicy,
+  ): Promise<void> {
+    this.#policies.set(`${installationKey(key)}:${slackUserId}`, events);
   }
 
   async putChannelBindings(

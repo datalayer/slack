@@ -54,6 +54,45 @@ Launch Review",
       "type": "section",
     },
     {
+      "text": {
+        "text": "*How answers show their work*",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "datalayer_event_policy",
+          "initial_option": {
+            "text": {
+              "text": "Noisy: every tool it used, listed",
+              "type": "plain_text",
+            },
+            "value": "noisy",
+          },
+          "options": [
+            {
+              "text": {
+                "text": "Quiet: one status line",
+                "type": "plain_text",
+              },
+              "value": "quiet",
+            },
+            {
+              "text": {
+                "text": "Noisy: every tool it used, listed",
+                "type": "plain_text",
+              },
+              "value": "noisy",
+            },
+          ],
+          "type": "radio_buttons",
+        },
+      ],
+      "type": "actions",
+    },
+    {
       "elements": [
         {
           "text": "You asked 3 of 30 questions this hour.",

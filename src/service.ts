@@ -330,7 +330,10 @@ export class SlackAgentService {
     const renderer = new TurnRenderer(this.#paced, this.limiter, prompt, {
       askValue: prompt.eventId,
       cadenceMs: this.options.cadenceMs,
-      events: this.options.events,
+      // The person's own choice first, then the service's default (S-308).
+      events:
+        (await this.store.getEventPolicy(prompt, prompt.userId)) ??
+        this.options.events,
       clock: this.#clock,
       messageTs: claim.turn.messageTs,
       // *Open in Datalayer* mints a one-use handoff on each press, for this

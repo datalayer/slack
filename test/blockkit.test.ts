@@ -220,6 +220,7 @@ describe("Block Kit snapshots and limits (S-406)", () => {
           { label: "Compare", message: "Compare the two launch options." },
         ],
       },
+      "noisy",
     );
     const unlinked = await homeView(
       store,

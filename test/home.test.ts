@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONNECT_ACTION,
   DOCS_ACTION,
+  EVENTS_ACTION,
   HOME_WORDS,
   homeView,
   SUPPORT_ACTION,
@@ -253,5 +254,57 @@ describe("App Home's suggestions (S-104)", () => {
       { startersOf: async () => [] },
     );
     expect(JSON.stringify(none)).not.toContain(HOME_WORDS.tryAsking);
+  });
+});
+
+describe("How answers show their work, per person (S-308)", () => {
+  it("offers a connected person quiet or noisy, the one in force selected", async () => {
+    const store = await storeWithApplications();
+    for (const events of ["quiet", "noisy"] as const) {
+      const view = await homeView(
+        store,
+        key,
+        "U1",
+        "https://datalayer.ai",
+        linked,
+        undefined,
+        undefined,
+        events,
+      );
+      const radio = view.blocks
+        .flatMap((block) => (block.type === "actions" ? block.elements : []))
+        .find(
+          (element) =>
+            (element as { action_id?: string }).action_id === EVENTS_ACTION,
+        ) as
+        | {
+            initial_option?: { value: string };
+            options: Array<{ value: string; text: { text: string } }>;
+          }
+        | undefined;
+      expect(radio?.options.map((one) => one.text.text)).toEqual([
+        HOME_WORDS.quiet,
+        HOME_WORDS.noisy,
+      ]);
+      expect(radio?.initial_option?.value).toBe(events);
+    }
+  });
+
+  it("offers nothing to a person not connected", async () => {
+    const store = await storeWithApplications();
+    const view = await homeView(
+      store,
+      key,
+      "U9",
+      "https://datalayer.ai",
+      {
+        connectUrlOf: async () => "https://datalayer.ai/hosts/link?code=one",
+        linkOf: async () => undefined,
+      },
+      undefined,
+      undefined,
+      "quiet",
+    );
+    expect(JSON.stringify(view.blocks)).not.toContain(EVENTS_ACTION);
   });
 });

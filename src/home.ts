@@ -1,7 +1,11 @@
 import type { Starter } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { HomeView, KnownBlock } from "@slack/types";
 
-import type { SlackInstallationKey, StarterSource } from "./domain.js";
+import type {
+  EventPolicy,
+  SlackInstallationKey,
+  StarterSource,
+} from "./domain.js";
 import { StoreLinks, type AccountLinks } from "./host-installations.js";
 import { bounded, escapeSlack } from "./presentation.js";
 import type { SlackStore } from "./store.js";
@@ -10,6 +14,8 @@ export const CONNECT_ACTION = "datalayer_connect_account";
 export const UNLINK_ACTION = "datalayer_unlink_account";
 export const DOCS_ACTION = "open_datalayer_slack_docs";
 export const SUPPORT_ACTION = "open_datalayer_support";
+/** A person's quiet or noisy choice on their Home (S-308). */
+export const EVENTS_ACTION = "datalayer_event_policy";
 
 /** The words @Datalayer's Home and the docs page share (S-108). */
 export const HOME_WORDS = {
@@ -22,7 +28,35 @@ export const HOME_WORDS = {
   tryAsking: "Try asking",
   startersUnread:
     "What it suggests asking could not be read from Datalayer just now. Open this Home again later.",
+  answers: "How answers show their work",
+  quiet: "Quiet: one status line",
+  noisy: "Noisy: every tool it used, listed",
 } as const;
+
+/** The person's choice of quiet or noisy answers (S-308), the one in force selected. */
+function eventsBlocks(events: EventPolicy): KnownBlock[] {
+  const options = (["quiet", "noisy"] as const).map((value) => ({
+    text: { type: "plain_text" as const, text: HOME_WORDS[value] },
+    value,
+  }));
+  return [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*${HOME_WORDS.answers}*` },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "radio_buttons",
+          action_id: EVENTS_ACTION,
+          initial_option: options.find((one) => one.value === events),
+          options,
+        },
+      ],
+    },
+  ];
+}
 
 /** How many of an application's starters App Home suggests. */
 export const HOME_STARTERS = 5;
@@ -83,6 +117,8 @@ export async function homeView(
   usage?: HomeUsage,
   /** Where the default application's starters are read (S-104), for a connected person. */
   starters?: StarterSource,
+  /** How this person's answers show their work, their own choice or the default (S-308). */
+  events?: EventPolicy,
 ): Promise<HomeView> {
   const [link, applicationId, allowances] = await Promise.all([
     links.linkOf(key, slackUserId),
@@ -209,6 +245,7 @@ export async function homeView(
       },
       ...applications,
       ...startersBlocks(defaultName ?? "", suggested),
+      ...(connected && events ? eventsBlocks(events) : []),
       ...(usage
         ? [
             {

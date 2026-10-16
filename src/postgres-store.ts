@@ -11,6 +11,7 @@ import {
   type AppAllowance,
   type IncomingPrompt,
   type ChannelBinding,
+  type EventPolicy,
   type SlackDelivery,
   type ThreadTurn,
   type TurnClaim,
@@ -601,6 +602,40 @@ export class PostgresSlackStore implements SlackStore {
           updatedBy: row.updated_by,
         }
       : undefined;
+  }
+
+  async getEventPolicy(
+    key: SlackInstallationKey,
+    slackUserId: string,
+  ): Promise<EventPolicy | undefined> {
+    const result = await this.database.query<{ events: EventPolicy }>(
+      `SELECT events FROM slack_user_event_policies
+       WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3 AND slack_user_id = $4`,
+      [key.appId, enterprise(key.enterpriseId), key.teamId, slackUserId],
+    );
+    return result.rows[0]?.events;
+  }
+
+  async putEventPolicy(
+    key: SlackInstallationKey,
+    slackUserId: string,
+    events: EventPolicy,
+  ): Promise<void> {
+    await this.database.query(
+      `INSERT INTO slack_user_event_policies
+         (app_id, enterprise_id, team_id, slack_user_id, events, updated_at)
+       VALUES ($1,$2,$3,$4,$5,now())
+       ON CONFLICT (app_id, enterprise_id, team_id, slack_user_id) DO UPDATE SET
+         events = EXCLUDED.events,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        key.appId,
+        enterprise(key.enterpriseId),
+        key.teamId,
+        slackUserId,
+        events,
+      ],
+    );
   }
 
   async putChannelBindings(

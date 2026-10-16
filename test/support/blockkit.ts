@@ -25,6 +25,7 @@ export const BLOCK_KIT = {
   optionValue: 150,
   selectOptions: 100,
   overflowOptions: 5,
+  radioOptions: 10,
   placeholder: 150,
   modalTitle: 24,
   modalButton: 24,
@@ -79,10 +80,22 @@ function problemsOfElement(element: Json, where: string): string[] {
       problems.push(
         `${where}: accessibility_label over ${BLOCK_KIT.accessibilityLabel}`,
       );
-  } else if (type === "static_select" || type === "overflow") {
+  } else if (
+    type === "static_select" ||
+    type === "overflow" ||
+    type === "radio_buttons"
+  ) {
     const options = (element.options ?? []) as Json[];
     const most =
-      type === "overflow" ? BLOCK_KIT.overflowOptions : BLOCK_KIT.selectOptions;
+      type === "overflow"
+        ? BLOCK_KIT.overflowOptions
+        : type === "radio_buttons"
+          ? BLOCK_KIT.radioOptions
+          : BLOCK_KIT.selectOptions;
+    // A selected option must be one of the options, as Slack checks it.
+    const initial = element.initial_option as Json | undefined;
+    if (initial && !options.some((option) => option.value === initial.value))
+      problems.push(`${where}: an initial option that is not an option`);
     if (options.length === 0) problems.push(`${where}: a menu with no option`);
     if (options.length > most)
       problems.push(`${where}: ${options.length} options, over ${most}`);

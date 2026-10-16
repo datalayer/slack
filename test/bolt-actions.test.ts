@@ -24,6 +24,7 @@ import {
   USE_ANOTHER,
 } from "../src/presentation.js";
 import type { DeliveryHandler } from "../src/deliveries.js";
+import { EVENTS_ACTION } from "../src/home.js";
 import { SELECT_APPLICATION_ACTION } from "../src/routing.js";
 import { SlackAgentService } from "../src/service.js";
 import type { MemorySlackStore } from "../src/store.js";
@@ -87,6 +88,15 @@ function boltOf(
     authorize: async () => ({ botToken: "xoxb-test", botUserId: "B1" }),
     signingSecret: "signing-secret",
   });
+  // App Home is published to the fake, never to Slack.
+  const published: Array<{ user_id?: string; view?: unknown }> = [];
+  (app.client.views as unknown as { publish: unknown }).publish = async (args: {
+    user_id?: string;
+    view?: unknown;
+  }) => {
+    published.push(args);
+    return { ok: true };
+  };
   registerSlackListeners(
     app,
     readConfig({
@@ -112,7 +122,7 @@ function boltOf(
     });
     expect(acked).toBe(true);
   };
-  return { agents, press, queue, service, slack };
+  return { agents, press, published, queue, service, slack };
 }
 
 describe("Use another application through the Bolt handlers (S-208)", () => {
@@ -602,5 +612,43 @@ describe("A question asked in the AG-UI stream, answered in Slack, end to end (S
       expect(blocks).not.toContain(ASK_CHOICE_ACTION);
       if (question.kind !== "text") expect(blocks).toContain(OPEN_ACTION);
     }
+  });
+});
+
+describe("Quiet or noisy, chosen on the Home through the Bolt handlers (S-308)", () => {
+  it("keeps the person's choice for their installation only", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const { press, published } = boltOf(store);
+    const choose = (value: string, user = "U1") =>
+      press({
+        actions: [
+          {
+            action_id: EVENTS_ACTION,
+            action_ts: "9.4",
+            selected_option: {
+              text: { text: value, type: "plain_text" },
+              value,
+            },
+            type: "radio_buttons",
+          },
+        ],
+        container: { type: "view", view_id: "V1" },
+        user: { id: user, team_id: "T1" },
+        view: { id: "V1", type: "home" },
+      });
+    await choose("noisy");
+    await expect(store.getEventPolicy(promptOf(), "U1")).resolves.toBe("noisy");
+    // Their Home shown again, the choice selected.
+    expect(published.at(-1)?.user_id).toBe("U1");
+    expect(JSON.stringify(published.at(-1)?.view)).toContain(
+      '"initial_option":{"text":{"type":"plain_text","text":"Noisy: every tool it used, listed"},"value":"noisy"}',
+    );
+    await expect(
+      store.getEventPolicy(promptOf(), "U2"),
+    ).resolves.toBeUndefined();
+    await choose("loud"); // not an option: nothing kept
+    await expect(store.getEventPolicy(promptOf(), "U1")).resolves.toBe("noisy");
+    await choose("quiet");
+    await expect(store.getEventPolicy(promptOf(), "U1")).resolves.toBe("quiet");
   });
 });
