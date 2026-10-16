@@ -214,7 +214,7 @@ What runs is one esbuild bundle (`scripts/bundle.ts`, `dist/index.js`,
 checks what was bundled (`forbiddenInBundle` over the metafile:
 `npm run check:imports`, in memory), the sources (`scripts/forbidden-sources.ts`)
 and, in CI only, the installed graph of the externals
-(`npm ls --omit=dev --omit=peer --all`: `npm run check:installed`). It fails
+(`npm ls --omit=dev --all`: `npm run check:installed`). It fails
 on `@jupyter/*`, `@jupyterlab/*`, `@jupyter-widgets/*`, `@lumino/*`,
 `@datalayer/jupyter-*`, `react`, `react-dom`, `@primer/*`,
 `@datalayer/reactor` and the other host services.

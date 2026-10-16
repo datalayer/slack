@@ -51,7 +51,7 @@ Added on 16 October 2026 (plans/SLACK.md round 1):
   - `/healthz` and `/readyz` (the store and the queue only);
   - redacted JSON logs with pseudonymous ids, and identity audit events (`src/observability.ts`);
   - one esbuild bundle (`scripts/bundle.ts`: `dist/index.js`, `dist/migrate.js`, `dist/dead-letters.js`) gated on its module graph (`npm run check:imports`) and, in CI, on the installed graph of its externals (`npm run check:installed`);
-  - a two-stage `Dockerfile` (node 20 slim, non-root): the build stage fetches the pinned agent-runtimes release's `lib/portable` only (`config.agentRuntimesVersion`, `scripts/fetch-agent-runtimes.mjs`) and bundles; the runtime stage installs the externals only (`--omit=dev --omit=peer`); `scripts/migrate.ts` applies the shared host tables, then `migrations/`;
+  - a two-stage `Dockerfile` (node 20 slim, non-root): the build stage fetches the pinned agent-runtimes release's `lib/portable` only (`config.agentRuntimesVersion`, `scripts/fetch-agent-runtimes.mjs`) and bundles; the runtime stage installs the externals only (`--omit=dev`: agent-runtimes is an optional peer, which npm never installs, while the peers of the dependencies — `undici` for Bolt — are kept); `scripts/migrate.ts` applies the shared host tables, then `migrations/`;
   - CI (`.github/workflows/ci.yml`).
 - **documents**: `docs/inventory.md` (S-001), `docs/adr/` (S-002) and `docs/threat-model.md` (S-003, draft).
 

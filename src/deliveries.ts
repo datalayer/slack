@@ -18,7 +18,11 @@ import {
   waitingLine,
   type ConfirmMetadata,
 } from "./approval-card.js";
-import type { SlackInstallation, SlackInstallationKey } from "./domain.js";
+import type {
+  SlackInstallation,
+  SlackInstallationKey,
+  ThreadKey,
+} from "./domain.js";
 import { safeSlackText, slackLink } from "./presentation.js";
 import type { SlackPort } from "./slack-port.js";
 import type { SlackStore } from "./store.js";
@@ -79,7 +83,7 @@ export class DeliveryHandler {
   constructor(
     readonly store: SlackStore,
     readonly client: DatalayerHostClient,
-    readonly credentials: HostKeyCredentials,
+    readonly credentials: HostKeyCredentials<ThreadKey>,
     readonly slack: SlackPort,
     readonly webUrl: string,
     readonly fetchImplementation: typeof fetch = fetch,
