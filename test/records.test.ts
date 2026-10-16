@@ -415,8 +415,12 @@ if (DATABASE_URL) {
       await done;
       await queue.stop();
       expect(leases.every((lease) => lease > 0)).toBe(true);
+      // Renewed while worked: the lease never goes back and has moved on by
+      // the end. Two reads 120 ms apart may see the same renewal on a slow
+      // runner (CI run 38913319947), so each step is only never earlier.
       for (let index = 1; index < leases.length; index += 1)
-        expect(leases[index]).toBeGreaterThan(leases[index - 1] ?? 0);
+        expect(leases[index]).toBeGreaterThanOrEqual(leases[index - 1] ?? 0);
+      expect(leases.at(-1)).toBeGreaterThan(leases[0] ?? 0);
       const left = await database.query("SELECT 1 FROM slack_jobs");
       expect(left.rowCount).toBe(0);
     });
