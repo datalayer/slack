@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
 
-import { Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { SecretCipher } from "../src/crypto.js";
@@ -14,6 +13,7 @@ import { PostgresSlackStore } from "../src/postgres-store.js";
 import { PostgresWorkQueue } from "../src/postgres-queue.js";
 import { MemorySlackStore, type SlackStore } from "../src/store.js";
 import { MemoryWorkQueue, type WorkQueue } from "../src/queue.js";
+import { testDatabase } from "./support/postgres.js";
 
 /**
  * The §5 Slack-side records (S-004), on the memory store always and on
@@ -341,12 +341,7 @@ suite("Slack records on the memory store", async () => ({
 if (DATABASE_URL) {
   let database: Pool;
   beforeAll(async () => {
-    database = new Pool({ connectionString: DATABASE_URL, max: 4 });
-    const folder = new URL("../migrations/", import.meta.url);
-    for (const name of (await readdir(folder))
-      .filter((one) => one.endsWith(".sql"))
-      .sort())
-      await database.query(await readFile(new URL(name, folder), "utf8"));
+    database = await testDatabase(DATABASE_URL, "slack_test_records");
   });
   afterAll(async () => {
     await database?.end();

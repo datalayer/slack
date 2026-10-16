@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
 
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { DeadLetters, payloadHash } from "../src/dead-letters.js";
@@ -20,6 +19,7 @@ import {
   keptLogger,
   promptOf,
 } from "./support/fakes.js";
+import { testDatabase } from "./support/postgres.js";
 
 const limits = { application: 5, organization: 5, user: 2, workspace: 3 };
 const turn = {
@@ -112,15 +112,7 @@ const DATABASE_URL = process.env.SLACK_TEST_DATABASE_URL;
 describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
   let database: Pool;
   beforeAll(async () => {
-    database = new Pool({ connectionString: DATABASE_URL, max: 4 });
-    const folder = new URL("../migrations/", import.meta.url);
-    for (const name of (await readdir(folder))
-      .filter((one) => one.endsWith(".sql"))
-      .sort())
-      await database.query(await readFile(new URL(name, folder), "utf8"));
-    await database.query(
-      "TRUNCATE slack_usage, slack_jobs, slack_payload_access",
-    );
+    database = await testDatabase(DATABASE_URL ?? "", "slack_test_operations");
   });
   afterAll(async () => {
     await database?.end();
