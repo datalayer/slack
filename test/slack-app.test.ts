@@ -19,11 +19,19 @@ type Call = { method: string; params: URLSearchParams; auth: string | null };
 function fakeSlack(answers: Record<string, Record<string, unknown>>) {
   const calls: Call[] = [];
   const fetchImpl: Fetch = async (input, init) => {
-    const method = String(input).split("/api/")[1];
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    const method = url.split("/api/")[1] ?? "";
     const headers = new Headers(init?.headers);
     calls.push({
       method,
-      params: new URLSearchParams(String(init?.body)),
+      params: new URLSearchParams(
+        typeof init?.body === "string" ? init.body : "",
+      ),
       auth: headers.get("authorization"),
     });
     return new Response(

@@ -69,7 +69,7 @@ export async function call(
   if (body.ok !== true)
     throw new SlackApiError(
       method,
-      String(body.error ?? "unknown"),
+      typeof body.error === "string" ? body.error : "unknown",
       body.errors,
     );
   return body;
