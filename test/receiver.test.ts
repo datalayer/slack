@@ -83,7 +83,7 @@ async function started() {
     },
   );
   registerSlackListeners(app, config, service, queue);
-  server = (await app.start(0)) as Server;
+  server = await app.start(0);
   const port = (server.address() as AddressInfo).port;
   const post = (body: string, headers: Record<string, string>) =>
     fetch(`http://127.0.0.1:${port}/slack/events`, {

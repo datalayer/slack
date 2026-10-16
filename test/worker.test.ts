@@ -4,7 +4,7 @@ import { LogTracer, pseudonym } from "../src/observability.js";
 import { MemoryWorkQueue } from "../src/queue.js";
 import { SlackAgentService } from "../src/service.js";
 import type { SemanticEvent } from "../src/semantic.js";
-import { MemorySlackStore } from "../src/store.js";
+import type { MemorySlackStore } from "../src/store.js";
 import {
   SEND_EDITED_ACTION,
   SlackWorker,
@@ -30,6 +30,10 @@ class KeptQueue extends MemoryWorkQueue<SlackJob> {
   }
   override start(): void {}
 }
+
+/** The prompts the queue kept, each job's own. */
+const promptsOf = (queue: KeptQueue) =>
+  queue.kept.map((job) => ("prompt" in job ? job.prompt : job));
 
 function workerOf(
   store: MemorySlackStore,
@@ -85,13 +89,11 @@ describe("choosing and switching applications (S-208)", () => {
     await expect(
       worker.selected(installationKey, { app: "dep-2", ev: "Ev1" }, "U1"),
     ).resolves.toBe("refused");
-    expect(queue.kept).toEqual([
-      {
-        prompt: expect.objectContaining({
-          applicationId: "dep-2",
-          eventId: "Ev1",
-        }),
-      },
+    expect(promptsOf(queue)).toEqual([
+      expect.objectContaining({
+        applicationId: "dep-2",
+        eventId: "Ev1",
+      }),
     ]);
   });
 
@@ -180,13 +182,11 @@ describe("edits, deletes and answers in Slack (S-209, S-307)", () => {
     await expect(
       worker.sendEdited(installationKey, { ev: "EvEdit" }, "U1", "5.6"),
     ).resolves.toBe(false);
-    expect(queue.kept).toEqual([
-      {
-        prompt: expect.objectContaining({
-          eventId: "edit:EvEdit:5.5",
-          text: "the new words",
-        }),
-      },
+    expect(promptsOf(queue)).toEqual([
+      expect.objectContaining({
+        eventId: "edit:EvEdit:5.5",
+        text: "the new words",
+      }),
     ]);
   });
 
@@ -220,22 +220,18 @@ describe("edits, deletes and answers in Slack (S-209, S-307)", () => {
     await expect(
       worker.answered(promptOf(), { askedBy: "Ev2", option: "Yes" }, "U1"),
     ).resolves.toBe(true);
-    expect(queue.kept).toEqual([
-      {
-        prompt: expect.objectContaining({
-          eventId: "ask:1.0:Ev1",
-          text: "Option B",
-          threadTs: "1.0",
-          userId: "U2",
-        }),
-      },
-      {
-        prompt: expect.objectContaining({
-          eventId: "ask:1.0:Ev2",
-          text: "Yes",
-          userId: "U1",
-        }),
-      },
+    expect(promptsOf(queue)).toEqual([
+      expect.objectContaining({
+        eventId: "ask:1.0:Ev1",
+        text: "Option B",
+        threadTs: "1.0",
+        userId: "U2",
+      }),
+      expect.objectContaining({
+        eventId: "ask:1.0:Ev2",
+        text: "Yes",
+        userId: "U1",
+      }),
     ]);
   });
 });

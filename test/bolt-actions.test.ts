@@ -40,6 +40,10 @@ class KeptQueue extends MemoryWorkQueue<SlackJob> {
   override start(): void {}
 }
 
+/** The prompts the queue kept, each job's own. */
+const promptsOf = (queue: KeptQueue) =>
+  queue.kept.map((job) => ("prompt" in job ? job.prompt : job));
+
 const allow = [
   { id: "dep-1", name: "Launch Review" },
   { id: "dep-2", name: "Desk" },
@@ -294,14 +298,12 @@ describe("A choice answered once through the Bolt handlers (S-307)", () => {
     await click("U2", 1, "7.7");
     await click("U2", 1, "7.8"); // a second click: a new action_ts
     await click("U1", 0, "7.9"); // another option, another person
-    expect(queue.kept).toEqual([
-      {
-        prompt: expect.objectContaining({
-          eventId: "ask:1.0:EvAsk",
-          text: "Option B",
-          userId: "U2",
-        }),
-      },
+    expect(promptsOf(queue)).toEqual([
+      expect.objectContaining({
+        eventId: "ask:1.0:EvAsk",
+        text: "Option B",
+        userId: "U2",
+      }),
     ]);
     const updated = slack.of("chat.update");
     expect(updated).toHaveLength(1);

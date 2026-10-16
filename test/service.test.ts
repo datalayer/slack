@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { TurnStream } from "../src/domain.js";
 import { HostRefusedError } from "../src/host-client.js";
 import { STOP_ACTION } from "../src/presentation.js";
 import { SlackAgentService, type StopValue } from "../src/service.js";
 import type { SemanticEvent } from "../src/semantic.js";
-import { MemorySlackStore } from "../src/store.js";
+import type { MemorySlackStore } from "../src/store.js";
 import {
   FakeAgents,
   FakeClock,
@@ -317,12 +316,11 @@ describe("turns: serialization, Stop, duplicates and crashes (S-207)", () => {
     await expect(run.service.stop(promptOf(), value, "U1")).resolves.toBe(
       "stopped",
     );
-    expect(agents.stops).toEqual([
-      expect.objectContaining({
-        request: expect.objectContaining({ principalId: "alice" }),
-        sessionId: "S1",
-      }),
-    ]);
+    expect(agents.stops).toHaveLength(1);
+    expect(agents.stops[0]).toMatchObject({
+      request: { principalId: "alice" },
+      sessionId: "S1",
+    });
     release();
     await first;
     await expect(run.service.stop(promptOf(), value, "U1")).resolves.toBe(
@@ -383,12 +381,11 @@ describe("turns: serialization, Stop, duplicates and crashes (S-207)", () => {
       "The connection to Datalayer was interrupted.",
     );
     expect((await store.getTurn(promptOf()))?.state).toBe("done");
-    agents.script = () =>
-      ({
-        run: {},
-        sessionId: "S1",
-        updates: streamOf({ kind: "completion", text: "ok" }),
-      }) as TurnStream;
+    agents.script = () => ({
+      run: {},
+      sessionId: "S1",
+      updates: streamOf({ kind: "completion", text: "ok" }),
+    });
     await run.service.handlePrompt(promptOf({ eventId: "Ev2" }), "B1");
     expect(agents.requests).toHaveLength(2);
   });

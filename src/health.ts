@@ -137,6 +137,6 @@ export function healthServer(checks: ReadinessChecks): Server {
       response.end();
       return;
     }
-    void route.handler(request as never, response as never);
+    void route.handler(request, response);
   });
 }

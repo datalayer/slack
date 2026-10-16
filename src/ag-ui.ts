@@ -52,14 +52,18 @@ export type TurnInfo = Readonly<{
   turn: string;
 }>;
 
+/** A string field of an event, or the fallback: never an object stringified. */
+const stringOf = (value: unknown, fallback = ""): string =>
+  typeof value === "string" ? value : fallback;
+
 export function turnOf(event: AgUiEvent): TurnInfo | undefined {
   if (event.type !== "CUSTOM" || event.name !== "loop.turn") return undefined;
   const value = (event.value ?? {}) as Record<string, unknown>;
   return {
     replayed: value.replayed === true,
-    session: String(value.session ?? ""),
-    state: String(value.state ?? ""),
-    turn: String(value.turn ?? ""),
+    session: stringOf(value.session),
+    state: stringOf(value.state),
+    turn: stringOf(value.turn),
   };
 }
 
@@ -114,13 +118,13 @@ export function semanticOf(
         ? [{ kind: "text", text: event.delta }]
         : [];
     case "TOOL_CALL_START": {
-      const id = String(event.toolCallId ?? "");
-      const name = String(event.toolCallName ?? "a tool");
+      const id = stringOf(event.toolCallId);
+      const name = stringOf(event.toolCallName, "a tool");
       tools.set(id, name);
       return [{ kind: "tool", id, name, status: "running" }];
     }
     case "TOOL_CALL_RESULT": {
-      const id = String(event.toolCallId ?? "");
+      const id = stringOf(event.toolCallId);
       const name = tools.get(id) ?? "a tool";
       const result = resultRecord(event.content);
       if (result?.pending_approval === true)
@@ -146,7 +150,7 @@ export function semanticOf(
       return [
         {
           kind: "error",
-          message: String(event.message ?? "The run failed."),
+          message: stringOf(event.message, "The run failed."),
         },
       ];
     case "CUSTOM": {

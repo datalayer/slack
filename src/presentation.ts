@@ -84,11 +84,11 @@ export function answerMrkdwn(text: string): string {
     /\[([^\]\n]{1,300})\]\((https:\/\/[^\s)]{1,2000})\)/g,
     (_, label: string, url: string) => {
       links.push(slackLink(url, label));
-      return `\u0000${links.length - 1}\u0000`;
+      return `\uE000${links.length - 1}\uE001`;
     },
   );
   return escapeSlack(marked).replace(
-    /\u0000(\d+)\u0000/g,
+    /\uE000(\d+)\uE001/g,
     (_, index: string) => links[Number(index)] ?? "",
   );
 }
