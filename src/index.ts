@@ -5,6 +5,7 @@ import {
   InstallationCredentials,
   type HostKeyLookup,
 } from "./agent-client.js";
+import { BotTokens, slackTokenRefresh } from "./bot-tokens.js";
 import {
   BoltSlackPort,
   createBoltApp,
@@ -93,8 +94,25 @@ async function main(): Promise<void> {
           )
         : undefined,
   });
+  // Rotating bot tokens (staging and production manifests) are refreshed
+  // before a worker post, even when no inbound event refreshed them (S-102).
+  const installationStore = resources.installationStore;
+  const tokens = new BotTokens(store, {
+    refresh:
+      config.SLACK_CLIENT_ID && config.SLACK_CLIENT_SECRET
+        ? slackTokenRefresh(
+            app.client,
+            config.SLACK_CLIENT_ID,
+            config.SLACK_CLIENT_SECRET,
+          )
+        : undefined,
+    rotated: installationStore
+      ? (key, installation) => installationStore.rotateBot(key, installation)
+      : undefined,
+  });
   const slack = new BoltSlackPort(app.client, store, {
     streaming: config.DATALAYER_SLACK_STREAMING,
+    tokens,
   });
   const service = new SlackAgentService(
     store,
@@ -135,6 +153,7 @@ async function main(): Promise<void> {
     tracer: new LogTracer(new Logger()),
     deliveries,
     hosts,
+    tokens,
   });
   const poller = new DeliveryPoller(store, client, enqueueDelivery);
 

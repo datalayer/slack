@@ -49,6 +49,43 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       ({ store, queue } = await fresh());
     };
 
+    it("keeps a rotating bot token, rotates it only while active (S-102)", async () => {
+      await reset();
+      await store.putInstallation({
+        ...key,
+        botRefreshToken: "xoxe-1-first",
+        botToken: "xoxe.xoxb-first",
+        botTokenExpiresAt: 1_792_000_000,
+        botUserId: "B1",
+        installedBy: "U0",
+        scopes: ["app_mentions:read", "chat:write", "im:history"],
+        status: "active",
+        updatedAt: at.toISOString(),
+      });
+      expect(await store.getInstallation(key)).toMatchObject({
+        botRefreshToken: "xoxe-1-first",
+        botTokenExpiresAt: 1_792_000_000,
+      });
+      const rotated = {
+        botRefreshToken: "xoxe-1-second",
+        botToken: "xoxe.xoxb-second",
+        botTokenExpiresAt: 1_792_043_200,
+        updatedAt: at.toISOString(),
+      };
+      expect(await store.rotateBotToken(key, rotated)).toBe(true);
+      expect(await store.getInstallation(key)).toMatchObject({
+        ...rotated,
+        status: "active",
+      });
+      await store.deleteInstallation(key);
+      expect(await store.rotateBotToken(key, rotated)).toBe(false);
+      expect(await store.getInstallation(key)).toBeUndefined();
+      await installed(store);
+      const plain = await store.getInstallation(key);
+      expect(plain?.botRefreshToken).toBeUndefined();
+      expect(plain?.botTokenExpiresAt).toBeUndefined();
+    });
+
     it("keeps an installation's allowances, replaced whole", async () => {
       await reset();
       await installed(store);

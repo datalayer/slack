@@ -6,7 +6,7 @@ import type {
 import type { Pool } from "pg";
 
 import type { EncryptedSecret, SecretCipher } from "./crypto.js";
-import type { SlackInstallation } from "./domain.js";
+import type { SlackInstallation, SlackInstallationKey } from "./domain.js";
 import type { BoundHost } from "./host-client.js";
 import type { HostInstallations } from "./host-installations.js";
 import { bindCodeOfInstallation } from "./oauth-state.js";
@@ -48,7 +48,12 @@ export class PostgresInstallationStore implements InstallationStore {
     if (code && this.hosts)
       bound = await this.hosts.bind(domainKey, code, installation.team?.name);
     const key = oauthKey(appId, installation.enterprise?.id, teamId);
-    const encrypted = this.cipher.encrypt(JSON.stringify(installation), key);
+    // Kept without its metadata: the bind code is spent once here, and Bolt's
+    // token refresh stores the fetched installation again (S-102).
+    const encrypted = this.cipher.encrypt(
+      JSON.stringify({ ...installation, metadata: undefined }),
+      key,
+    );
     await this.database.query(
       `INSERT INTO slack_oauth_installations
          (app_id, enterprise_id, team_id, installation, updated_at)
@@ -61,6 +66,8 @@ export class PostgresInstallationStore implements InstallationStore {
     const kept: SlackInstallation = {
       ...domainKey,
       botToken: installation.bot.token,
+      botRefreshToken: installation.bot.refreshToken,
+      botTokenExpiresAt: installation.bot.expiresAt,
       botUserId: installation.bot.userId,
       installedBy: installation.user.id,
       scopes: installation.bot.scopes,
@@ -91,6 +98,46 @@ export class PostgresInstallationStore implements InstallationStore {
       "v1" | "v2",
       boolean
     >;
+  }
+
+  /**
+   * A bot token the worker refreshed (`BotTokens`): Bolt's own row follows, so
+   * its `authorize` reads the same token and refresh token.
+   */
+  async rotateBot(
+    key: SlackInstallationKey,
+    installation: SlackInstallation,
+  ): Promise<void> {
+    const query = {
+      enterpriseId: key.enterpriseId,
+      isEnterpriseInstall: false,
+      teamId: key.teamId,
+    };
+    const stored = await this.fetchInstallation(query);
+    if (!stored.bot)
+      throw new Error("The Datalayer Slack app requires a bot installation.");
+    const next = {
+      ...stored,
+      bot: {
+        ...stored.bot,
+        expiresAt: installation.botTokenExpiresAt,
+        refreshToken: installation.botRefreshToken,
+        token: installation.botToken,
+      },
+    };
+    await this.database.query(
+      `UPDATE slack_oauth_installations SET installation = $4, updated_at = now()
+       WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3`,
+      [
+        this.appId,
+        key.enterpriseId ?? "",
+        key.teamId,
+        this.cipher.encrypt(
+          JSON.stringify(next),
+          oauthKey(this.appId, key.enterpriseId, key.teamId),
+        ),
+      ],
+    );
   }
 
   async deleteInstallation(query: InstallationQuery<boolean>): Promise<void> {

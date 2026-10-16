@@ -205,18 +205,35 @@ describe("edits, deletes and answers in Slack (S-209, S-307)", () => {
     );
   });
 
-  it("sends a choice as the presser's own turn in the thread", async () => {
+  it("sends a choice as the presser's own turn in the thread, once per asking event", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
     const { queue, worker } = workerOf(store);
-    await worker.answered(promptOf(), "Option B", "U2", "7.7");
-    await worker.answered(promptOf(), "Option B", "U2", "7.7"); // a double click
+    const asked = { askedBy: "Ev1", option: "Option B" };
+    await expect(worker.answered(promptOf(), asked, "U2")).resolves.toBe(true);
+    // A second click (a new action_ts), another option, another person.
+    await expect(worker.answered(promptOf(), asked, "U2")).resolves.toBe(false);
+    await expect(
+      worker.answered(promptOf(), { askedBy: "Ev1", option: "Option A" }, "U2"),
+    ).resolves.toBe(false);
+    await expect(worker.answered(promptOf(), asked, "U1")).resolves.toBe(false);
+    // The next question in the thread is answered on its own.
+    await expect(
+      worker.answered(promptOf(), { askedBy: "Ev2", option: "Yes" }, "U1"),
+    ).resolves.toBe(true);
     expect(queue.kept).toEqual([
       {
         prompt: expect.objectContaining({
-          eventId: "ask:1.0:7.7",
+          eventId: "ask:1.0:Ev1",
           text: "Option B",
           threadTs: "1.0",
           userId: "U2",
+        }),
+      },
+      {
+        prompt: expect.objectContaining({
+          eventId: "ask:1.0:Ev2",
+          text: "Yes",
+          userId: "U1",
         }),
       },
     ]);

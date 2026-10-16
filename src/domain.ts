@@ -9,6 +9,13 @@ export type SlackInstallationKey = Readonly<{
 export type SlackInstallation = SlackInstallationKey &
   Readonly<{
     botToken: string;
+    /**
+     * With token rotation (staging and production manifests): the refresh
+     * token Slack answered with the bot token, and when that token expires
+     * (UTC seconds). Encrypted at rest like the bot token; never logged.
+     */
+    botRefreshToken?: string;
+    botTokenExpiresAt?: number;
     botUserId: string;
     /** The Datalayer host installation this workspace was bound to at install. */
     datalayerHostUid?: string;

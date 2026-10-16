@@ -10,6 +10,7 @@ import { DEFAULT_QUOTAS, windowOf } from "./quotas.js";
 import type { HostInstallations } from "./host-installations.js";
 import { escapeSlack } from "./presentation.js";
 import type { WorkQueue } from "./queue.js";
+import type { SelectorValue } from "./routing.js";
 import type { SlackAgentService, StopValue } from "./service.js";
 
 /** What the queue carries: each kind of durable work. */
@@ -183,7 +184,7 @@ export class SlackWorker {
   /** The selector's choice (S-208): the held prompt runs with that application, for its person only. */
   async selected(
     key: SlackInstallationKey,
-    value: { app: string; ev: string; sw?: boolean },
+    value: SelectorValue,
     slackUserId: string,
     thread?: ThreadKey,
   ): Promise<"started" | "switched" | "refused"> {
@@ -266,22 +267,26 @@ export class SlackWorker {
   }
 
   /** A choice answered from its buttons: sent as the presser's own turn in the thread. */
+  /**
+   * A choice pressed: the presser's own turn, once per asking event (S-307).
+   * Whoever presses first answers; another click, option or person is
+   * `false` and sends nothing.
+   */
   async answered(
     thread: ThreadKey,
-    option: string,
+    answer: Readonly<{ option: string; askedBy: string }>,
     slackUserId: string,
-    actionTs: string,
-  ): Promise<void> {
-    await this.queue.enqueue(
+  ): Promise<boolean> {
+    return this.queue.enqueue(
       {
         prompt: {
           ...thread,
-          eventId: `ask:${thread.threadTs}:${actionTs}`,
-          text: option,
+          eventId: `ask:${thread.threadTs}:${answer.askedBy}`,
+          text: answer.option,
           userId: slackUserId,
         },
       },
-      `ask:${thread.channelId}:${actionTs}:${slackUserId}`,
+      `ask:${thread.channelId}:${thread.threadTs}:${answer.askedBy}`,
     );
   }
 

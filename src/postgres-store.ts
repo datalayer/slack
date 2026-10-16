@@ -17,7 +17,7 @@ import {
   type ThreadKey,
 } from "./domain.js";
 import type { QuotaEntry } from "./quotas.js";
-import { turnIsStale, type SlackStore } from "./store.js";
+import { turnIsStale, type RotatedBotToken, type SlackStore } from "./store.js";
 
 const enterprise = (value?: string): string => value ?? "";
 const dateString = (value: Date | string): string =>
@@ -26,6 +26,8 @@ const dateString = (value: Date | string): string =>
 type InstallationRow = Readonly<{
   app_id: string;
   bot_token: EncryptedSecret;
+  bot_refresh_token: EncryptedSecret | null;
+  bot_token_expires_at: string | number | null;
   bot_user_id: string;
   datalayer_host_key: EncryptedSecret | null;
   datalayer_host_uid: string | null;
@@ -140,6 +142,8 @@ type CardRow = Readonly<{
 }>;
 
 /** What a host key and a delivery secret are encrypted with: bound to their installation. */
+const refreshTokenData = (key: SlackInstallationKey): string =>
+  `bot-refresh-token:${installationKey(key)}`;
 const hostKeyData = (key: SlackInstallationKey): string =>
   `host-key:${installationKey(key)}`;
 const deliverySecretData = (key: SlackInstallationKey): string =>
@@ -287,6 +291,13 @@ export class PostgresSlackStore implements SlackStore {
     return {
       ...key,
       botToken: this.cipher.decrypt(row.bot_token, installationKey(key)),
+      botRefreshToken: row.bot_refresh_token
+        ? this.cipher.decrypt(row.bot_refresh_token, refreshTokenData(key))
+        : undefined,
+      botTokenExpiresAt:
+        row.bot_token_expires_at === null
+          ? undefined
+          : Number(row.bot_token_expires_at),
       botUserId: row.bot_user_id,
       datalayerHostKey: row.datalayer_host_key
         ? this.cipher.decrypt(row.datalayer_host_key, hostKeyData(key))
@@ -345,16 +356,22 @@ export class PostgresSlackStore implements SlackStore {
     const deliverySecret = value.deliverySecret
       ? this.cipher.encrypt(value.deliverySecret, deliverySecretData(value))
       : null;
+    const refreshToken = value.botRefreshToken
+      ? this.cipher.encrypt(value.botRefreshToken, refreshTokenData(value))
+      : null;
     // The host fields are kept when left out: a reinstall without a bind code
     // never forgets the workspace's key.
     await this.database.query(
       `INSERT INTO slack_installations
          (app_id, enterprise_id, team_id, bot_token, bot_user_id, datalayer_organization_id,
           installed_by, scopes, status, updated_at,
-          datalayer_host_uid, datalayer_host_key, delivery_secret)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          datalayer_host_uid, datalayer_host_key, delivery_secret,
+          bot_refresh_token, bot_token_expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (app_id, enterprise_id, team_id) DO UPDATE SET
          bot_token = EXCLUDED.bot_token,
+         bot_refresh_token = EXCLUDED.bot_refresh_token,
+         bot_token_expires_at = EXCLUDED.bot_token_expires_at,
          bot_user_id = EXCLUDED.bot_user_id,
          datalayer_organization_id = EXCLUDED.datalayer_organization_id,
          installed_by = EXCLUDED.installed_by,
@@ -378,8 +395,35 @@ export class PostgresSlackStore implements SlackStore {
         value.datalayerHostUid ?? null,
         hostKey,
         deliverySecret,
+        refreshToken,
+        value.botTokenExpiresAt ?? null,
       ],
     );
+  }
+
+  async rotateBotToken(
+    key: SlackInstallationKey,
+    rotated: RotatedBotToken,
+  ): Promise<boolean> {
+    // Only an active row is updated: a workspace uninstalled while its token
+    // was refreshed is never revived (S-106).
+    const result = await this.database.query(
+      `UPDATE slack_installations SET
+         bot_token = $4, bot_refresh_token = $5, bot_token_expires_at = $6,
+         updated_at = $7
+       WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3
+         AND status = 'active'`,
+      [
+        key.appId,
+        enterprise(key.enterpriseId),
+        key.teamId,
+        this.cipher.encrypt(rotated.botToken, installationKey(key)),
+        this.cipher.encrypt(rotated.botRefreshToken, refreshTokenData(key)),
+        rotated.botTokenExpiresAt,
+        rotated.updatedAt,
+      ],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async putThread(value: ThreadBinding): Promise<void> {

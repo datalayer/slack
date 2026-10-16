@@ -425,6 +425,41 @@ export class TurnPresentation {
   }
 }
 
+/** A choice button's value: the answer, and the asking event it answers once. */
+export function askChoiceValue(option: string, askValue: string): string {
+  return JSON.stringify({ a: option, k: askValue });
+}
+
+/** The question's message once answered: its buttons replaced by who answered what. */
+export function answeredAskBlocks(
+  blocks: readonly KnownBlock[],
+  option: string,
+  slackUserId: string,
+): KnownBlock[] {
+  return blocks.map(
+    (block): KnownBlock =>
+      block.type === "actions" &&
+      block.elements.some((element) =>
+        (element as { action_id?: string }).action_id?.startsWith(
+          `${ASK_CHOICE_ACTION}_`,
+        ),
+      )
+        ? {
+            type: "context",
+            elements: [
+              {
+                type: "mrkdwn",
+                text: bounded(
+                  `<@${slackUserId}> answered: ${escapeSlack(option)}`,
+                  SLACK_LIMITS.sectionText,
+                ),
+              },
+            ],
+          }
+        : block,
+  );
+}
+
 function askBlocks(
   question: AskQuestion,
   openUrl: string,
@@ -453,23 +488,29 @@ function askBlocks(
         ],
       },
     ];
+  const options = question.options ?? [];
+  // Buttons only when every option fits its button whole (S-307): a value
+  // cut would lose the press, an empty choice would be an empty block.
   if (
     question.kind === "choice" &&
-    (question.options?.length ?? 0) <= 5 &&
-    askValue
+    askValue &&
+    options.length > 0 &&
+    options.length <= 5 &&
+    options.every(
+      (option) =>
+        option.length <= 75 &&
+        askChoiceValue(option, askValue).length <= SLACK_LIMITS.buttonValue,
+    )
   )
     return [
       prompt,
       {
         type: "actions",
-        elements: (question.options ?? []).map((option, index) => ({
+        elements: options.map((option, index) => ({
           type: "button" as const,
           action_id: `${ASK_CHOICE_ACTION}_${index}`,
-          text: { type: "plain_text" as const, text: bounded(option, 75) },
-          value: bounded(
-            JSON.stringify({ a: option, k: askValue }),
-            SLACK_LIMITS.buttonValue,
-          ),
+          text: { type: "plain_text" as const, text: option },
+          value: askChoiceValue(option, askValue),
         })),
       },
     ];

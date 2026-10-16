@@ -1,6 +1,8 @@
+import type { KnownBlock } from "@slack/types";
 import { describe, expect, it } from "vitest";
 
 import {
+  answeredAskBlocks,
   answerMrkdwn,
   SLACK_LIMITS,
   slackLink,
@@ -270,6 +272,45 @@ describe("questions and the event policy (S-307, S-308)", () => {
     );
     expect(blocks).not.toContain("datalayer_ask_choice");
     expect(blocks).toContain("Answer in Datalayer");
+  });
+
+  it("hands a choice it cannot show whole to Datalayer: no options, a long option, a long value (S-307)", () => {
+    for (const options of [[], ["Short", "x".repeat(76)]]) {
+      const asking = new TurnPresentation();
+      asking.apply({
+        kind: "ask",
+        question: { kind: "choice", options, prompt: "Which?" },
+      });
+      const blocks = JSON.stringify(
+        asking.message(OPEN, { askValue: "Ev1" }).blocks,
+      );
+      expect(blocks).not.toContain("datalayer_ask_choice");
+      expect(blocks).toContain("Answer in Datalayer");
+    }
+    const tooLong = new TurnPresentation();
+    tooLong.apply({
+      kind: "ask",
+      question: { kind: "choice", options: ["Yes", "No"], prompt: "Which?" },
+    });
+    const handed = JSON.stringify(
+      tooLong.message(OPEN, { askValue: "E".repeat(1990) }).blocks,
+    );
+    expect(handed).not.toContain("datalayer_ask_choice");
+    expect(handed).toContain("Answer in Datalayer");
+  });
+
+  it("replaces an answered choice's buttons by who answered what", () => {
+    const asking = new TurnPresentation();
+    asking.apply({
+      kind: "ask",
+      question: { kind: "choice", options: ["A", "B"], prompt: "Which?" },
+    });
+    const blocks = asking.message(OPEN, { askValue: "Ev1" })
+      .blocks as KnownBlock[];
+    const answered = JSON.stringify(answeredAskBlocks(blocks, "B", "U2"));
+    expect(answered).not.toContain("datalayer_ask_choice");
+    expect(answered).toContain("<@U2> answered: B");
+    expect(answered).toContain("Which?");
   });
 
   it("keeps routine tool events to one status line unless the policy is noisy", () => {

@@ -18,6 +18,15 @@ import {
   type ThreadKey,
 } from "./domain.js";
 
+/** A bot token Slack answered for a refresh token (token rotation, S-102). */
+export type RotatedBotToken = Readonly<{
+  botToken: string;
+  botRefreshToken: string;
+  /** UTC seconds. */
+  botTokenExpiresAt: number;
+  updatedAt: string;
+}>;
+
 export interface SlackStore {
   /** Claim an event, action or delivery once: `false` when already claimed. */
   claimEvent(eventId: string): Promise<boolean>;
@@ -50,6 +59,14 @@ export interface SlackStore {
    * never forgets the workspace's host key.
    */
   putInstallation(installation: SlackInstallation): Promise<void>;
+  /**
+   * Keep a refreshed bot token on an active installation only: `false` when
+   * the workspace is gone or disconnected, which a refresh never revives.
+   */
+  rotateBotToken(
+    key: SlackInstallationKey,
+    rotated: RotatedBotToken,
+  ): Promise<boolean>;
   putThread(binding: ThreadBinding): Promise<void>;
   putUserLink(link: SlackUserLink): Promise<void>;
   setDefaultApplication(
@@ -244,6 +261,16 @@ export class MemorySlackStore implements SlackStore {
         installation.datalayerHostKey ?? before?.datalayerHostKey,
       deliverySecret: installation.deliverySecret ?? before?.deliverySecret,
     });
+  }
+
+  async rotateBotToken(
+    key: SlackInstallationKey,
+    rotated: RotatedBotToken,
+  ): Promise<boolean> {
+    const before = this.#installations.get(installationKey(key));
+    if (!before || before.status !== "active") return false;
+    this.#installations.set(installationKey(key), { ...before, ...rotated });
+    return true;
   }
 
   async putThread(binding: ThreadBinding): Promise<void> {

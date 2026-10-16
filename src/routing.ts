@@ -5,6 +5,7 @@ import type {
   IncomingPrompt,
   SlackInstallationKey,
   ThreadBinding,
+  ThreadKey,
 } from "./domain.js";
 import type { AccountLinks } from "./host-installations.js";
 import { escapeSlack, slackLink } from "./presentation.js";
@@ -13,6 +14,18 @@ import type { SlackStore } from "./store.js";
 
 /** The application selector's action: one application chosen for the thread. */
 export const SELECT_APPLICATION_ACTION = "datalayer_select_application";
+
+/**
+ * A selector option's value: the application, the held prompt's event, and
+ * for *Use another application* the thread switched (`c`, `t`).
+ */
+export type SelectorValue = Readonly<{
+  app: string;
+  ev: string;
+  sw?: boolean;
+  c?: string;
+  t?: string;
+}>;
 
 /** Why a turn did not start: each with its own private repair (§2 rule 10). */
 export type Refusal =
@@ -168,7 +181,12 @@ export class TurnRouting {
   selector(
     allowances: readonly AppAllowance[],
     prompt: Pick<IncomingPrompt, "channelId" | "eventId">,
-    switching = false,
+    /**
+     * *Use another application* (S-208): the thread switched, carried in each
+     * option's value. The selector is sent privately (an ephemeral or a direct
+     * message), whose press names no thread of its own.
+     */
+    switching?: Pick<ThreadKey, "channelId" | "threadTs">,
   ): SlackMessage {
     const usable = allowances.filter(
       (one) =>
@@ -203,7 +221,13 @@ export class TurnRouting {
               },
               value: JSON.stringify(
                 switching
-                  ? { app: one.applicationId, ev: "", sw: true }
+                  ? {
+                      app: one.applicationId,
+                      ev: "",
+                      sw: true,
+                      c: switching.channelId,
+                      t: switching.threadTs,
+                    }
                   : { app: one.applicationId, ev: prompt.eventId },
               ),
             })),
@@ -215,6 +239,21 @@ export class TurnRouting {
       blocks,
       text: "Choose the application that answers in this thread.",
     };
+  }
+
+  /**
+   * The thread a pressed *Use another application* option switches: the one
+   * its value names, in the channel it was pressed in. Anything else names no
+   * thread, and the switch is refused.
+   */
+  static switchedThread(
+    key: SlackInstallationKey,
+    value: SelectorValue,
+    pressedChannelId: string | undefined,
+  ): ThreadKey | undefined {
+    if (!value.sw || !value.c || !value.t) return undefined;
+    if (pressedChannelId && pressedChannelId !== value.c) return undefined;
+    return { ...key, channelId: value.c, threadTs: value.t };
   }
 
   #docs(anchor: string): string {

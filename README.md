@@ -417,6 +417,8 @@ SLACK_TOKEN_ENCRYPTION_KEY=<base64-encoded 32-byte key>
 SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
 ```
 
+Staging and production manifests turn on token rotation: Slack's bot token then lives twelve hours. The worker refreshes it before any post when it expires within two hours (`src/bot-tokens.ts`, with `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`), so answers, deliveries and approval cards keep working after a quiet spell with no inbound event. The refresh token is kept encrypted beside the bot token (migration `005`).
+
 Create a key with `openssl rand -base64 32` and keep it in the platform secret manager. The key version is stored with every ciphertext so rotation can be introduced without ambiguous decryptions. Slack tokens are encrypted with AES-256-GCM and bound to their installation key as authenticated data.
 
 Apply the idempotent schema migration before starting a release:

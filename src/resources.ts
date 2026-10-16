@@ -1,4 +1,3 @@
-import type { InstallationStore } from "@slack/bolt";
 import type { Pool } from "pg";
 
 import type { SlackJob } from "./bolt.js";
@@ -17,7 +16,7 @@ export type RuntimeResources = Readonly<{
   /** Whether the store answers now: what readiness reports. */
   ready(): Promise<boolean>;
   hosts: HostInstallations;
-  installationStore?: InstallationStore;
+  installationStore?: PostgresInstallationStore;
   queue: WorkQueue<SlackJob>;
   store: SlackStore;
 }>;

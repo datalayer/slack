@@ -10,6 +10,7 @@ import {
 import type { KnownBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 
+import { BotTokens } from "./bot-tokens.js";
 import type { Config } from "./config.js";
 import type { SlackInstallationKey, ThreadKey } from "./domain.js";
 import {
@@ -34,6 +35,7 @@ import {
 } from "./home.js";
 import { ingressOf, type EventEnvelope } from "./ingress.js";
 import {
+  answeredAskBlocks,
   ASK_CHOICE_ACTION,
   OPEN_ACTION,
   START_OVER,
@@ -41,7 +43,11 @@ import {
   THREAD_MENU_ACTION,
   USE_ANOTHER,
 } from "./presentation.js";
-import { SELECT_APPLICATION_ACTION } from "./routing.js";
+import {
+  SELECT_APPLICATION_ACTION,
+  TurnRouting,
+  type SelectorValue,
+} from "./routing.js";
 import type { HostInstallations } from "./host-installations.js";
 import {
   escapeHtml,
@@ -63,6 +69,7 @@ import type { SlackStore } from "./store.js";
 
 export class BoltSlackPort implements SlackPort {
   readonly streaming?: SlackStreaming;
+  readonly tokens: BotTokens;
 
   /**
    * `streaming`: Slack's text streaming (`chat.startStream`, `appendStream`,
@@ -72,8 +79,10 @@ export class BoltSlackPort implements SlackPort {
   constructor(
     readonly client: WebClient,
     readonly store: SlackStore,
-    options: { streaming?: boolean } = {},
+    options: { streaming?: boolean; tokens?: BotTokens } = {},
   ) {
+    // The workspace's bot token, refreshed first when it rotates (S-102).
+    this.tokens = options.tokens ?? new BotTokens(store);
     if (options.streaming)
       this.streaming = {
         append: async (key, ts, markdown) => {
@@ -175,11 +184,7 @@ export class BoltSlackPort implements SlackPort {
   }
 
   async #token(key: SlackInstallationKey): Promise<string> {
-    const installation = await this.store.getInstallation(key);
-    if (!installation || installation.status !== "active") {
-      throw new Error("No active Slack installation was found.");
-    }
-    return installation.botToken;
+    return this.tokens.token(key);
   }
 }
 
@@ -298,6 +303,8 @@ export type SlackListenerParts = Readonly<{
   hosts?: HostInstallations;
   /** Whether this process works the queue: not an ingress-only replica (§10). */
   consume?: boolean;
+  /** The workspace's bot token, refreshed when it rotates (S-102). */
+  tokens?: BotTokens;
   tracer?: Tracer;
 }>;
 
@@ -321,6 +328,7 @@ export function registerSlackListeners(
   queue: WorkQueue<SlackJob>,
   parts: SlackListenerParts = {},
 ): SlackWorker {
+  const tokens = parts.tokens ?? new BotTokens(service.store);
   const worker = new SlackWorker(service, queue, {
     deliveries: parts.deliveries,
     hosts: parts.hosts,
@@ -329,7 +337,7 @@ export function registerSlackListeners(
       const installation = await service.store.getInstallation(key);
       if (!installation) return;
       await app.client.views.publish({
-        token: installation.botToken,
+        token: await tokens.token(key),
         user_id: userId,
         view: view as Parameters<typeof app.client.views.publish>[0]["view"],
       });
@@ -453,12 +461,18 @@ export function registerSlackListeners(
         team_id: action.team?.id ?? action.user.team_id,
       });
       if (!key) return;
-      const value = JSON.parse(pressed.selected_option.value) as {
-        app: string;
-        ev: string;
-        sw?: boolean;
-      };
-      const outcome = await worker.selected(key, value, action.user.id, thread);
+      const value = JSON.parse(pressed.selected_option.value) as SelectorValue;
+      // A switch names its thread in the value: the selector was sent
+      // privately, and its own message is no thread of the session's.
+      const switched = value.sw
+        ? TurnRouting.switchedThread(key, value, action.channel?.id)
+        : thread;
+      const outcome = await worker.selected(
+        key,
+        value,
+        action.user.id,
+        switched,
+      );
       if (outcome === "refused")
         await service.privately(thread ?? key, action.user.id, {
           text: "That choice is not available to you any more. Mention @Datalayer again.",
@@ -493,7 +507,7 @@ export function registerSlackListeners(
           service.routing.selector(
             await service.store.getAllowances(thread),
             { channelId: thread.channelId, eventId: "" },
-            true,
+            thread,
           ),
         );
       }
@@ -511,9 +525,28 @@ export function registerSlackListeners(
         const pressed = action.actions[0];
         const thread = threadOf(action);
         if (!thread || pressed?.type !== "button") return;
-        const { a } = JSON.parse(pressed.value ?? "{}") as { a?: string };
-        if (a)
-          await worker.answered(thread, a, action.user.id, pressed.action_ts);
+        const { a, k } = JSON.parse(pressed.value ?? "{}") as {
+          a?: string;
+          k?: string;
+        };
+        if (!a || !k) return;
+        const first = await worker.answered(
+          thread,
+          { askedBy: k, option: a },
+          action.user.id,
+        );
+        const message = action.message as
+          | { blocks?: KnownBlock[]; text?: string; ts?: string }
+          | undefined;
+        if (first && message?.ts && message.blocks)
+          await service.slack.updateMessage(thread, message.ts, {
+            blocks: answeredAskBlocks(message.blocks, a, action.user.id),
+            text: message.text ?? a,
+          });
+        else if (!first)
+          await service.privately(thread, action.user.id, {
+            text: "This question was already answered.",
+          });
       } catch (error) {
         logger.error("Failed to send the answer", error);
       }
