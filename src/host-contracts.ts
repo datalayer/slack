@@ -32,6 +32,41 @@ export const bindSchema = z.object({
 /** What a link code is redeemed at: the landing's confirm page. */
 export const LINK_PAGE_PATH = "/hosts/link";
 
+/**
+ * `GET /apps/hosts/self`: the installation with its allowed deployments.
+ * `channels`, `direct_only` and `paused` are the installation's channel
+ * policy and pause (S-104, S-105, S-403).
+ */
+export const selfSchema = z.object({
+  host: z
+    .object({
+      uid: z.string().min(1),
+      account_uid: z.string().optional(),
+      default_deployment: z.string().optional(),
+      deployments: z.array(
+        z
+          .object({
+            uid: z.string().min(1),
+            app_name: z.string().optional(),
+            kept: z.boolean().optional(),
+          })
+          .loose(),
+      ),
+      channels: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            state: z.enum(["allow", "deny"]),
+            deployment: z.string().optional(),
+          }),
+        )
+        .optional(),
+      direct_only: z.array(z.string()).optional(),
+      paused: z.boolean().optional(),
+    })
+    .loose(),
+});
+
 export const linkStateSchema = z.object({
   linked: z.boolean(),
   principal_uid: z.string().optional(),

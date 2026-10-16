@@ -14,6 +14,8 @@ import { MemorySlackStore, type SlackStore } from "./store.js";
 
 export type RuntimeResources = Readonly<{
   close(): Promise<void>;
+  /** Whether the store answers now: what readiness reports. */
+  ready(): Promise<boolean>;
   hosts: HostInstallations;
   installationStore?: InstallationStore;
   queue: WorkQueue<SlackJob>;
@@ -33,6 +35,7 @@ export function createRuntimeResources(
     return {
       close: async () => queue.stop(),
       hosts: hostsOf(store),
+      ready: async () => true,
       queue,
       store,
     };
@@ -68,6 +71,14 @@ function postgresResources(
       await database.end();
     },
     hosts,
+    ready: async () => {
+      try {
+        await database.query("SELECT 1");
+        return true;
+      } catch {
+        return false;
+      }
+    },
     installationStore: new PostgresInstallationStore(
       appId,
       database,

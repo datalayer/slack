@@ -8,6 +8,7 @@ import {
   linkCodeSchema,
   linkStateSchema,
   presentationSchema,
+  selfSchema,
   webhookSchema,
   type ApprovalPresentation,
   type HostDelivery,
@@ -23,6 +24,19 @@ export class HostRefusedError extends Error {
     super(`${what} (${status}): ${detail}`);
   }
 }
+
+export type HostSelf = Readonly<{
+  accountUid: string;
+  channels: ReadonlyArray<{
+    deployment: string;
+    id: string;
+    state: "allow" | "deny";
+  }>;
+  defaultDeployment?: string;
+  deployments: ReadonlyArray<{ appName: string; kept: boolean; uid: string }>;
+  directOnly: readonly string[];
+  paused: boolean;
+}>;
 
 export type BoundHost = Readonly<{
   defaultDeployment?: string;
@@ -110,6 +124,48 @@ export class DatalayerHostClient {
       { hostKey, method: "DELETE" },
       z.unknown(),
     );
+  }
+
+  /**
+   * The installation as Datalayer keeps it: the deployments it allows (with
+   * their application's name and whether each is kept on), the default, the
+   * channel policy and whether it is paused.
+   */
+  async self(hostKey: string): Promise<HostSelf> {
+    const answered = await this.#call(
+      "Datalayer did not answer the installation",
+      "/apps/hosts/self",
+      { hostKey },
+      selfSchema,
+    );
+    const host = answered.host;
+    return {
+      accountUid: host.account_uid ?? "",
+      channels: (host.channels ?? []).map((one) => ({
+        deployment: one.deployment ?? "",
+        id: one.id,
+        state: one.state,
+      })),
+      defaultDeployment: host.default_deployment || undefined,
+      deployments: host.deployments.map((one) => ({
+        appName: one.app_name ?? "",
+        kept: one.kept ?? false,
+        uid: one.uid,
+      })),
+      directOnly: host.direct_only ?? [],
+      paused: host.paused ?? false,
+    };
+  }
+
+  /** The host unlinks one of its users: how many links ended. */
+  async unlink(hostKey: string, externalUserId: string): Promise<number> {
+    const answered = await this.#call(
+      "Datalayer did not unlink the account",
+      `/apps/hosts/self/links/${encodeURIComponent(externalUserId)}`,
+      { hostKey, method: "DELETE" },
+      z.object({ revoked: z.number().int() }),
+    );
+    return answered.revoked;
   }
 
   /** A one-use code a Slack user redeems, signed in to Datalayer, to link their account. */

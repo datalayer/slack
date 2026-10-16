@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { sseEvents, turnOf, updateOf } from "./ag-ui.js";
-import type { AgentUpdate, TurnRequest, TurnStream } from "./domain.js";
+import { semanticOf, sseEvents, turnOf } from "./ag-ui.js";
+import type { TurnRequest, TurnStream } from "./domain.js";
+import { HostRefusedError } from "./host-client.js";
+import type { SemanticEvent } from "./semantic.js";
 import {
   exchangeSchema,
   HOST_KEY_HEADER,
@@ -83,10 +85,16 @@ export class HostKeyCredentials implements HostCredentials {
         method: "POST",
       },
     );
-    if (!response.ok)
-      throw new Error(
-        `Datalayer refused the host credential exchange (${response.status}).`,
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new HostRefusedError(
+        response.status,
+        typeof body.detail === "string" ? body.detail : "refused",
+        "Datalayer refused the host credential exchange",
       );
+    }
     return exchangeSchema.parse(await response.json());
   }
 
@@ -167,7 +175,10 @@ export class DevelopmentCredentials implements HostCredentials {
 export function sessionUidOf(request: TurnRequest): string {
   const { appId, channelId, enterpriseId, teamId, threadTs } =
     request.provenance;
-  const key = `${appId}:${enterpriseId ?? "-"}:${teamId}:${channelId}:${threadTs}`;
+  const generation = request.sessionGeneration
+    ? `:${request.sessionGeneration}`
+    : "";
+  const key = `${appId}:${enterpriseId ?? "-"}:${teamId}:${channelId}:${threadTs}${generation}`;
   return `slack-${createHash("sha256").update(key).digest("hex").slice(0, 40)}`;
 }
 
@@ -226,9 +237,11 @@ export class HttpAgentClient implements AgentClient {
         ? await this.hostKeyFor(request)
         : undefined;
     if (hostKey) await this.#bind(request, host, sessionId, hostKey);
+    const run: { id?: string } = {};
     return {
+      run,
       sessionId,
-      updates: this.#updates(response.body, host, sessionId),
+      updates: this.#updates(response.body, host, sessionId, run),
     };
   }
 
@@ -290,17 +303,18 @@ export class HttpAgentClient implements AgentClient {
     body: ReadableStream<Uint8Array>,
     host: HostSession,
     sessionId: string,
-  ): AsyncIterable<AgentUpdate> {
+    run: { id?: string },
+  ): AsyncIterable<SemanticEvent> {
     const tools = new Map<string, string>();
     for await (const event of sseEvents(body)) {
       const turn = turnOf(event);
+      if (turn?.turn) run.id = turn.turn;
       if (turn?.replayed) {
         // A retry: nothing ran again; what the turn said is the session's.
         yield* this.#replayed(host, sessionId, turn.state);
         return;
       }
-      const update = updateOf(event, tools);
-      if (update) yield update;
+      yield* semanticOf(event, tools);
     }
   }
 
@@ -308,9 +322,9 @@ export class HttpAgentClient implements AgentClient {
     host: HostSession,
     sessionId: string,
     state: string,
-  ): AsyncIterable<AgentUpdate> {
+  ): AsyncIterable<SemanticEvent> {
     if (state === "running") {
-      yield { kind: "status", label: "Still working on this message…" };
+      yield { kind: "progress", label: "Still working on this message…" };
       return;
     }
     const text = await lastAnswer(this.fetchImplementation, host, sessionId);
@@ -321,7 +335,7 @@ export class HttpAgentClient implements AgentClient {
       };
       return;
     }
-    yield { kind: "complete", text };
+    yield { kind: "completion", text };
   }
 }
 

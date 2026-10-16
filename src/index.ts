@@ -18,7 +18,9 @@ import {
   DeliveryHandler,
   DeliveryPoller,
   deliveryRoute,
+  type DeliveryJob,
 } from "./deliveries.js";
+import { healthRoutes } from "./health.js";
 import { DatalayerHostClient } from "./host-client.js";
 import { HostInstallations } from "./host-installations.js";
 import { SignedStateStore } from "./oauth-state.js";
@@ -62,10 +64,19 @@ async function main(): Promise<void> {
     hostKeyFor,
   );
 
-  const enqueueDelivery = (job: Parameters<typeof queue.enqueue>[0]) =>
-    queue.enqueue(job);
+  // A delivery is enqueued once by its uid, pushed or polled.
+  const enqueueDelivery = async (job: DeliveryJob): Promise<void> => {
+    await queue.enqueue(
+      job,
+      `delivery:${job.hostUid}:${job.delivery.delivery}`,
+    );
+  };
   const app = createBoltApp(config, {
     customRoutes: [
+      ...healthRoutes({
+        database: resources.ready,
+        queue: () => queue.ready(),
+      }),
       {
         handler: (request, response) =>
           void deliveryRoute(store, enqueueDelivery)(request, response),

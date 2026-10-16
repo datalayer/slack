@@ -1,4 +1,4 @@
-import type { AgentUpdate } from "./domain.js";
+import type { AskQuestion, SemanticEvent } from "./semantic.js";
 
 /**
  * The runtime's session API streams AG-UI events as server-sent events. This
@@ -63,39 +63,97 @@ export function turnOf(event: AgUiEvent): TurnInfo | undefined {
   };
 }
 
-/** The Slack-safe update an AG-UI event means, or nothing. */
-export function updateOf(
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+/** What a tool's result says of itself: JSON when it is JSON, else nothing. */
+function resultRecord(content: unknown): Record<string, unknown> | undefined {
+  if (isRecord(content)) return content;
+  if (typeof content !== "string") return undefined;
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The question a turn ends on (`RUN_FINISHED.result.asking`, `loop.ask`). */
+export function questionOf(value: unknown): AskQuestion | undefined {
+  if (!isRecord(value) || typeof value.prompt !== "string") return undefined;
+  const kind =
+    value.kind === "choice" || value.kind === "file" || value.kind === "form"
+      ? value.kind
+      : "text";
+  const options = Array.isArray(value.options)
+    ? value.options.filter((one): one is string => typeof one === "string")
+    : undefined;
+  return kind === "choice"
+    ? { kind, prompt: value.prompt, options: options ?? [] }
+    : { kind, prompt: value.prompt };
+}
+
+/**
+ * The semantic events (version 1, `src/semantic.ts`) one AG-UI event means:
+ * none for an event Slack does not show. `tools` keeps each running call's
+ * name by its id, for its result.
+ */
+export function semanticOf(
   event: AgUiEvent,
-  toolNames: Map<string, string>,
-): AgentUpdate | undefined {
+  tools: Map<string, string>,
+): SemanticEvent[] {
   switch (event.type) {
     case "TEXT_MESSAGE_CONTENT":
+    case "TEXT_MESSAGE_CHUNK":
       return typeof event.delta === "string" && event.delta
-        ? { kind: "text", text: event.delta }
-        : undefined;
+        ? [{ kind: "text", text: event.delta }]
+        : [];
     case "TOOL_CALL_START": {
+      const id = String(event.toolCallId ?? "");
       const name = String(event.toolCallName ?? "a tool");
-      toolNames.set(String(event.toolCallId ?? ""), name);
-      return { kind: "tool", name, status: "running" };
+      tools.set(id, name);
+      return [{ kind: "tool", id, name, status: "running" }];
     }
-    case "TOOL_CALL_END":
-      return {
-        kind: "tool",
-        name: toolNames.get(String(event.toolCallId ?? "")) ?? "a tool",
-        status: "complete",
-      };
-    case "RUN_FINISHED":
-      return { kind: "complete" };
+    case "TOOL_CALL_RESULT": {
+      const id = String(event.toolCallId ?? "");
+      const name = tools.get(id) ?? "a tool";
+      const result = resultRecord(event.content);
+      if (result?.pending_approval === true)
+        return [{ kind: "approval", toolCallId: id, toolName: name }];
+      const failed = result?.success === false || result?.isError === true;
+      return [
+        { kind: "tool", id, name, status: failed ? "failed" : "complete" },
+      ];
+    }
+    case "STEP_STARTED":
+      return typeof event.stepName === "string" && event.stepName
+        ? [{ kind: "progress", label: event.stepName }]
+        : [];
+    case "RUN_FINISHED": {
+      const asking = questionOf(
+        isRecord(event.result) ? event.result.asking : undefined,
+      );
+      return asking
+        ? [{ kind: "ask", question: asking }]
+        : [{ kind: "completion" }];
+    }
     case "RUN_ERROR":
-      return {
-        kind: "error",
-        message: String(event.message ?? "The run failed."),
-      };
-    case "CUSTOM":
-      if (event.name === "loop.ask")
-        return { kind: "status", label: "Waiting for your answer" };
-      return undefined;
+      return [
+        {
+          kind: "error",
+          message: String(event.message ?? "The run failed."),
+        },
+      ];
+    case "CUSTOM": {
+      if (event.name === "loop.ask") {
+        const asking = questionOf(event.value);
+        return asking ? [{ kind: "ask", question: asking }] : [];
+      }
+      if (event.name === "loop.turn" && isRecord(event.value))
+        return event.value.state === "stopped" ? [{ kind: "stop" }] : [];
+      return [];
+    }
     default:
-      return undefined;
+      return [];
   }
 }

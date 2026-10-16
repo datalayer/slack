@@ -1,5 +1,12 @@
 export interface WorkQueue<T> {
-  enqueue(item: T): Promise<void>;
+  /**
+   * Persist one job. With an idempotency key (a Slack event or action id),
+   * the key and the job are kept in one transaction and a second job under
+   * the same key is not enqueued: `false`.
+   */
+  enqueue(item: T, idempotencyKey?: string): Promise<boolean>;
+  /** Whether the queue can take durable work now: what readiness reports. */
+  ready(): Promise<boolean>;
   start(handler: (item: T) => Promise<void>): void;
   stop(): Promise<void>;
 }
@@ -7,12 +14,22 @@ export interface WorkQueue<T> {
 /** In-process development queue. A durable adapter is required in production. */
 export class MemoryWorkQueue<T> implements WorkQueue<T> {
   readonly #items: T[] = [];
+  readonly #keys = new Set<string>();
   #handler?: (item: T) => Promise<void>;
   #running = false;
 
-  async enqueue(item: T): Promise<void> {
+  async enqueue(item: T, idempotencyKey?: string): Promise<boolean> {
+    if (idempotencyKey) {
+      if (this.#keys.has(idempotencyKey)) return false;
+      this.#keys.add(idempotencyKey);
+    }
     this.#items.push(item);
     queueMicrotask(() => void this.#drain());
+    return true;
+  }
+
+  async ready(): Promise<boolean> {
+    return true;
   }
 
   start(handler: (item: T) => Promise<void>): void {

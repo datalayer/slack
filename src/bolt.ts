@@ -2,17 +2,15 @@ import {
   App,
   LogLevel,
   MemoryInstallationStore,
+  type BlockAction,
   type CustomRoute,
   type InstallationStore,
+  type Logger,
 } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 
 import type { Config } from "./config.js";
-import type {
-  IncomingPrompt,
-  SlackInstallationKey,
-  ThreadKey,
-} from "./domain.js";
+import type { SlackInstallationKey, ThreadKey } from "./domain.js";
 import {
   APPROVE_ACTION,
   buttonValueOf,
@@ -24,12 +22,24 @@ import {
   REVIEW_ACTION,
   type ConfirmMetadata,
 } from "./approval-card.js";
+import { DECISION_WORDS, type DeliveryHandler } from "./deliveries.js";
+import { guardRequestTimestamps } from "./health.js";
 import {
-  DECISION_WORDS,
-  type DeliveryHandler,
-  type DeliveryJob,
-} from "./deliveries.js";
-import { CONNECT_ACTION, homeView } from "./home.js";
+  CONNECT_ACTION,
+  DOCS_ACTION,
+  SUPPORT_ACTION,
+  UNLINK_ACTION,
+} from "./home.js";
+import { ingressOf, type EventEnvelope } from "./ingress.js";
+import {
+  ASK_CHOICE_ACTION,
+  OPEN_ACTION,
+  START_OVER,
+  STOP_ACTION,
+  THREAD_MENU_ACTION,
+  USE_ANOTHER,
+} from "./presentation.js";
+import { SELECT_APPLICATION_ACTION } from "./routing.js";
 import type { HostInstallations } from "./host-installations.js";
 import {
   escapeHtml,
@@ -38,9 +48,14 @@ import {
   type SignedStateStore,
 } from "./oauth-state.js";
 import type { WorkQueue } from "./queue.js";
-import type { SlackMessage, SlackPort } from "./slack-port.js";
-import type { SlackAgentService } from "./service.js";
-import { slackThreadKey } from "./service.js";
+import {
+  isDirectChannel,
+  isThreadKey,
+  type SlackMessage,
+  type SlackPort,
+} from "./slack-port.js";
+import type { SlackAgentService, StopValue } from "./service.js";
+import { SEND_EDITED_ACTION, SlackWorker, type SlackJob } from "./worker.js";
 import type { SlackStore } from "./store.js";
 
 export class BoltSlackPort implements SlackPort {
@@ -68,10 +83,23 @@ export class BoltSlackPort implements SlackPort {
   }
 
   async postPrivate(
-    key: SlackInstallationKey,
+    key: SlackInstallationKey | ThreadKey,
     userId: string,
     message: SlackMessage,
   ): Promise<void> {
+    // In a channel's thread: an ephemeral message only this person sees
+    // (`chat:write`); anywhere else, their direct message with @Datalayer.
+    if (isThreadKey(key) && !isDirectChannel(key.channelId)) {
+      const token = await this.#token(key);
+      await this.client.chat.postEphemeral({
+        channel: key.channelId,
+        thread_ts: key.threadTs,
+        token,
+        user: userId,
+        ...(message as { text: string }),
+      });
+      return;
+    }
     await this.postDirect(key, userId, message);
   }
 
@@ -131,10 +159,20 @@ export function oauthConfigured(config: Config): boolean {
   );
 }
 
+/** Where Slack posts signed events and actions. */
+export const SLACK_EVENTS_PATH = "/slack/events";
+
 export function createBoltApp(
   config: Config,
   options: BoltAppOptions = {},
 ): App {
+  const app = boltApp(config, options);
+  if (config.DATALAYER_SLACK_TRANSPORT === "http")
+    guardRequestTimestamps(app, [SLACK_EVENTS_PATH]);
+  return app;
+}
+
+function boltApp(config: Config, options: BoltAppOptions): App {
   const oauth = oauthConfigured(config);
   const stateStore = options.stateStore;
   return new App({
@@ -198,6 +236,9 @@ export function createBoltApp(
       : undefined,
     logLevel:
       config.NODE_ENV === "development" ? LogLevel.DEBUG : LogLevel.INFO,
+    // Over HTTP, an event is acknowledged once its listener persisted it
+    // (§7.1, 4–5); listeners never call Slack or Datalayer.
+    processBeforeResponse: config.DATALAYER_SLACK_TRANSPORT === "http",
     redirectUri: oauth ? config.SLACK_REDIRECT_URI : undefined,
     signingSecret:
       config.SLACK_SIGNING_SECRET ?? "socket-mode-does-not-use-this-secret",
@@ -232,105 +273,245 @@ export function registerSlackListeners(
   service: SlackAgentService,
   queue: WorkQueue<SlackJob>,
   parts: SlackListenerParts = {},
-): void {
-  queue.start(async (job) => {
-    if ("delivery" in job) {
-      await parts.deliveries?.receive(job);
-      return;
-    }
-    await service.handlePrompt(job.prompt, job.botUserId);
-  });
-  app.event("app_mention", async ({ body, event, logger }) => {
-    const teamId = body.team_id;
-    if (!teamId || !body.event_id || !event.user) return;
-    const thread = slackThreadKey({
-      appId: body.api_app_id,
-      channel: event.channel,
-      enterpriseId: body.enterprise_id ?? undefined,
-      teamId,
-      threadTs: event.thread_ts,
-      ts: event.ts,
-    });
-    const prompt: IncomingPrompt = {
-      ...thread,
-      eventId: body.event_id,
-      text: event.text,
-      userId: event.user,
-    };
-    try {
-      await queue.enqueue({
-        botUserId: config.SLACK_BOT_USER_ID,
-        prompt,
+): SlackWorker {
+  const worker = new SlackWorker(service, queue, {
+    deliveries: parts.deliveries,
+    hosts: parts.hosts,
+    publishHome: async (key, userId, view) => {
+      const installation = await service.store.getInstallation(key);
+      if (!installation) return;
+      await app.client.views.publish({
+        token: installation.botToken,
+        user_id: userId,
+        view: view as Parameters<typeof app.client.views.publish>[0]["view"],
       });
-    } catch (error) {
-      logger.error("Failed to process app mention", error);
-    }
+    },
   });
+  queue.start((job) => worker.handle(job));
 
-  app.event("message", async ({ body, event, logger }) => {
-    if (
-      event.channel_type !== "im" ||
-      !("user" in event) ||
-      !event.user ||
-      "bot_id" in event
-    )
-      return;
-    if (
-      !body.team_id ||
-      !body.event_id ||
-      !body.api_app_id ||
-      !("text" in event) ||
-      !event.text
-    )
-      return;
-    const thread = slackThreadKey({
-      appId: body.api_app_id,
-      channel: event.channel,
-      enterpriseId: body.enterprise_id ?? undefined,
-      teamId: body.team_id,
-      threadTs: "thread_ts" in event ? event.thread_ts : undefined,
-      ts: event.ts,
-    });
+  // Events: normalized without a network call, persisted once by their
+  // event id, then acknowledged (processBeforeResponse for HTTP, §7.1).
+  const enqueueEvent = async (body: EventEnvelope, logger: Logger) => {
+    const ingress = ingressOf(body, config.SLACK_BOT_USER_ID);
+    const key = body.event_id;
+    if (!key) return;
     try {
-      await queue.enqueue({
-        prompt: {
-          ...thread,
-          eventId: body.event_id,
-          text: event.text,
-          userId: event.user,
-        },
-      });
+      if (ingress.kind === "prompt")
+        await queue.enqueue(
+          { botUserId: ingress.botUserId, prompt: ingress.prompt },
+          key,
+        );
+      else if (ingress.kind === "edited")
+        await queue.enqueue(
+          {
+            kind: "edited",
+            originalTs: ingress.originalTs,
+            prompt: ingress.prompt,
+          },
+          key,
+        );
+      else if (ingress.kind === "deleted")
+        await queue.enqueue(
+          {
+            deletedTs: ingress.deletedTs,
+            kind: "deleted",
+            thread: ingress.prompt,
+            userId: ingress.prompt.userId,
+          },
+          key,
+        );
     } catch (error) {
-      logger.error("Failed to process direct message", error);
+      logger.error("Failed to persist a Slack event", error);
+      throw error; // not acknowledged: Slack retries
     }
-  });
+  };
+  app.event("app_mention", async ({ body, logger }) =>
+    enqueueEvent(body as unknown as EventEnvelope, logger),
+  );
+  app.event("message", async ({ body, logger }) =>
+    enqueueEvent(body as unknown as EventEnvelope, logger),
+  );
 
-  app.event("app_home_opened", async ({ body, event, client, logger }) => {
+  app.event("app_home_opened", async ({ body, event, logger }) => {
     const key = installationKeyOf(body);
-    if (!key || event.tab !== "home") return;
+    if (!key || event.tab !== "home" || !body.event_id) return;
     try {
-      const view = await homeView(
-        service.store,
-        key,
-        event.user,
-        service.webUrl,
-        service.links,
+      await queue.enqueue(
+        { key, kind: "home", userId: event.user },
+        body.event_id,
       );
-      await client.views.publish({ user_id: event.user, view });
     } catch (error) {
-      logger.error("Failed to publish App Home", error);
+      logger.error("Failed to persist App Home", error);
+      throw error;
     }
   });
 
   // Link buttons open their URL; Slack still sends the click, acknowledged here.
   for (const action of [
     CONNECT_ACTION,
-    "open_datalayer_slack_docs",
+    DOCS_ACTION,
+    SUPPORT_ACTION,
     REVIEW_ACTION,
+    OPEN_ACTION,
   ])
     app.action(action, async ({ ack }) => {
       await ack();
     });
+
+  /** The signed action's conversation: its channel and the thread of the message pressed. */
+  const threadOf = (body: BlockAction): ThreadKey | undefined => {
+    const key = installationKeyOf({
+      api_app_id: body.api_app_id,
+      enterprise_id: body.enterprise?.id,
+      team_id: body.team?.id ?? body.user.team_id,
+    });
+    const message = body.message as
+      | { ts?: string; thread_ts?: string }
+      | undefined;
+    const channelId = body.channel?.id;
+    const threadTs = message?.thread_ts ?? message?.ts;
+    return key && channelId && threadTs
+      ? { ...key, channelId, threadTs }
+      : undefined;
+  };
+
+  app.action(STOP_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const pressed = action.actions[0];
+      const thread = threadOf(action);
+      if (!thread || pressed?.type !== "button") return;
+      await worker.stop(
+        thread,
+        JSON.parse(pressed.value ?? "{}") as StopValue,
+        action.user.id,
+      );
+    } catch (error) {
+      logger.error("Failed to stop the turn", error);
+    }
+  });
+
+  app.action(SELECT_APPLICATION_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const pressed = action.actions[0];
+      if (pressed?.type !== "static_select") return;
+      const thread = threadOf(action);
+      const key = installationKeyOf({
+        api_app_id: action.api_app_id,
+        enterprise_id: action.enterprise?.id,
+        team_id: action.team?.id ?? action.user.team_id,
+      });
+      if (!key) return;
+      const value = JSON.parse(pressed.selected_option.value) as {
+        app: string;
+        ev: string;
+        sw?: boolean;
+      };
+      const outcome = await worker.selected(key, value, action.user.id, thread);
+      if (outcome === "refused")
+        await service.privately(thread ?? key, action.user.id, {
+          text: "That choice is not available to you any more. Mention @Datalayer again.",
+        });
+    } catch (error) {
+      logger.error("Failed to take the application choice", error);
+    }
+  });
+
+  app.action(THREAD_MENU_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const pressed = action.actions[0];
+      const thread = threadOf(action);
+      if (!thread || pressed?.type !== "overflow") return;
+      if (pressed.selected_option.value === START_OVER) {
+        const ok = await worker.startOver(thread, action.user.id);
+        await service.privately(thread, action.user.id, {
+          text: ok
+            ? "Started over: the next @Datalayer message in this thread opens a new session. The earlier one stays in Datalayer."
+            : "Only the person who started this thread's session can start over, and not while it answers.",
+        });
+        if (ok)
+          await service.slack.postThread(thread, {
+            text: "This thread was started over: the next @Datalayer message opens a new session.",
+          });
+      } else if (pressed.selected_option.value === USE_ANOTHER) {
+        await service.privately(
+          thread,
+          action.user.id,
+          service.routing.selector(
+            await service.store.getAllowances(thread),
+            { channelId: thread.channelId, eventId: "" },
+            true,
+          ),
+        );
+      }
+    } catch (error) {
+      logger.error("Failed to act on the thread menu", error);
+    }
+  });
+
+  app.action(
+    new RegExp(`^${ASK_CHOICE_ACTION}_\\d+$`),
+    async ({ ack, body, logger }) => {
+      await ack();
+      try {
+        const action = body as BlockAction;
+        const pressed = action.actions[0];
+        const thread = threadOf(action);
+        if (!thread || pressed?.type !== "button") return;
+        const { a } = JSON.parse(pressed.value ?? "{}") as { a?: string };
+        if (a)
+          await worker.answered(thread, a, action.user.id, pressed.action_ts);
+      } catch (error) {
+        logger.error("Failed to send the answer", error);
+      }
+    },
+  );
+
+  app.action(SEND_EDITED_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const pressed = action.actions[0];
+      const key = installationKeyOf({
+        api_app_id: action.api_app_id,
+        enterprise_id: action.enterprise?.id,
+        team_id: action.team?.id ?? action.user.team_id,
+      });
+      if (!key || pressed?.type !== "button") return;
+      const sent = await worker.sendEdited(
+        key,
+        JSON.parse(pressed.value ?? "{}") as { ev: string },
+        action.user.id,
+        pressed.action_ts,
+      );
+      if (!sent)
+        await service.privately(key, action.user.id, {
+          text: "That edit was already sent, or it is not yours to send.",
+        });
+    } catch (error) {
+      logger.error("Failed to send the edited text", error);
+    }
+  });
+
+  app.action(UNLINK_ACTION, async ({ ack, body, logger }) => {
+    await ack();
+    try {
+      const action = body as BlockAction;
+      const key = installationKeyOf({
+        api_app_id: action.api_app_id,
+        enterprise_id: action.enterprise?.id,
+        team_id: action.team?.id ?? action.user.team_id,
+      });
+      if (key) await worker.unlink(key, action.user.id);
+    } catch (error) {
+      logger.error("Failed to unlink the account", error);
+    }
+  });
 
   // Approve or Decline (S-304): acknowledged at once, then a confirmation.
   for (const [action, approve] of [
@@ -384,7 +565,7 @@ export function registerSlackListeners(
         slackUserId: body.user.id,
       });
       if (outcome !== "decided")
-        await service.slack.postPrivate(
+        await service.privately(
           {
             appId: metadata.app,
             enterpriseId: metadata.ent,
@@ -425,6 +606,7 @@ export function registerSlackListeners(
       throw error;
     }
   });
+  return worker;
 }
 
 export async function uninstallSlackWorkspace(
@@ -434,12 +616,7 @@ export async function uninstallSlackWorkspace(
   await store.deleteInstallation(key);
 }
 
-export type SlackJob =
-  | Readonly<{
-      botUserId?: string;
-      prompt: IncomingPrompt;
-    }>
-  | DeliveryJob;
+export type { SlackJob } from "./worker.js";
 
 export async function seedDevelopmentInstallation(
   config: Config,

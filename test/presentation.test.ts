@@ -21,10 +21,10 @@ describe("Slack presentation", () => {
 
   it("reduces streamed updates into one answer", () => {
     const presentation = new TurnPresentation();
-    presentation.apply({ kind: "status", label: "Reading" });
+    presentation.apply({ kind: "progress", label: "Reading" });
     presentation.apply({ kind: "text", text: "Hello " });
     presentation.apply({ kind: "text", text: "world" });
-    presentation.apply({ kind: "complete" });
+    presentation.apply({ kind: "completion" });
     expect(
       presentation.message("https://datalayer.ai/session/1").text,
     ).toContain("Hello world");

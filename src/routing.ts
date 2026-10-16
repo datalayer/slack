@@ -1,0 +1,223 @@
+import type { KnownBlock } from "@slack/types";
+
+import type {
+  AppAllowance,
+  IncomingPrompt,
+  SlackInstallationKey,
+  ThreadBinding,
+} from "./domain.js";
+import type { AccountLinks } from "./host-installations.js";
+import { escapeSlack, slackLink } from "./presentation.js";
+import type { SlackMessage } from "./slack-port.js";
+import type { SlackStore } from "./store.js";
+
+/** The application selector's action: one application chosen for the thread. */
+export const SELECT_APPLICATION_ACTION = "datalayer_select_application";
+
+/** Why a turn did not start: each with its own private repair (§2 rule 10). */
+export type Refusal =
+  | "not-installed"
+  | "external"
+  | "not-linked"
+  | "channel-denied"
+  | "not-allowed"
+  | "direct-only"
+  | "no-application"
+  | "no-access";
+
+export type Resolved = Readonly<{
+  principalId: string;
+  applicationId: string;
+  /** The thread's binding when the thread already has a session. */
+  binding?: ThreadBinding;
+  visibility: "channel" | "direct";
+}>;
+
+export type Resolution =
+  | Readonly<{ ok: true; resolved: Resolved }>
+  | Readonly<{ ok: false; refusal: Refusal; message?: SlackMessage }>;
+
+const visibilityOf = (
+  prompt: Pick<IncomingPrompt, "channelId">,
+): "channel" | "direct" =>
+  prompt.channelId.startsWith("D") ? "direct" : "channel";
+
+/**
+ * Resolve a Slack message to the person and application its turn runs as
+ * (plans/SLACK.md §8, S-202): active installation → not a shared channel →
+ * linked person → application (the thread's own, else an explicit choice,
+ * else the channel's, else the workspace default) → the application allowed
+ * here and in this kind of conversation. Datalayer's exchange then checks
+ * the person may open it, at every turn; nothing here authorizes alone.
+ */
+export class TurnRouting {
+  constructor(
+    readonly store: SlackStore,
+    readonly links: AccountLinks,
+    readonly webUrl: string,
+  ) {}
+
+  async resolve(prompt: IncomingPrompt): Promise<Resolution> {
+    const key: SlackInstallationKey = {
+      appId: prompt.appId,
+      enterpriseId: prompt.enterpriseId,
+      teamId: prompt.teamId,
+    };
+    const installation = await this.store.getInstallation(key);
+    if (!installation || installation.status !== "active")
+      return { ok: false, refusal: "not-installed" };
+
+    // Slack Connect and people of another workspace: identity is ambiguous,
+    // so v1 fails closed (§8).
+    if (
+      prompt.isExtShared ||
+      (prompt.userTeamId && prompt.userTeamId !== prompt.teamId)
+    )
+      return {
+        ok: false,
+        refusal: "external",
+        message: {
+          text: `@Datalayer does not answer in Slack Connect or shared channels yet. Ask it in a direct message or a channel of your own workspace. ${this.#docs("limits-and-availability")}`,
+        },
+      };
+
+    const link = await this.links.linkOf(key, prompt.userId);
+    if (!link) {
+      const connect = await this.links.connectUrlOf(key, prompt.userId);
+      return {
+        ok: false,
+        refusal: "not-linked",
+        message: {
+          text: connect
+            ? `Connect your Datalayer account before asking @Datalayer: <${connect}|Connect your Datalayer account> (the link works once, for ten minutes). How it works: ${this.webUrl}/docs/slack#install-and-connect`
+            : `Connect your Datalayer account before asking @Datalayer: ${this.webUrl}/docs/slack#install-and-connect`,
+        },
+      };
+    }
+
+    const visibility = visibilityOf(prompt);
+    const allowances = await this.store.getAllowances(key);
+    const allowed = (id: string) =>
+      allowances.length === 0
+        ? undefined
+        : allowances.find((one) => one.applicationId === id && one.enabled);
+    const binding = await this.store.getThread(prompt);
+
+    let applicationId: string | undefined;
+    if (binding) {
+      // A thread keeps its application: switching is explicit (S-208).
+      applicationId = binding.applicationId;
+    } else if (prompt.applicationId) {
+      applicationId = prompt.applicationId;
+    } else if (await this.store.getNextApplication(prompt)) {
+      applicationId = await this.store.getNextApplication(prompt);
+    } else {
+      const channel =
+        visibility === "channel"
+          ? await this.store.getChannelBinding(key, prompt.channelId)
+          : undefined;
+      if (channel?.state === "deny")
+        return {
+          ok: false,
+          refusal: "channel-denied",
+          message: {
+            text: `@Datalayer is turned off in this channel by your Datalayer administrator. Ask it in a direct message instead. ${this.#docs("administration")}`,
+          },
+        };
+      applicationId =
+        channel?.applicationId ?? (await this.store.getDefaultApplication(key));
+    }
+
+    if (!applicationId)
+      return {
+        ok: false,
+        refusal: "no-application",
+        message: this.selector(allowances, prompt),
+      };
+
+    const allowance = allowed(applicationId);
+    if (allowances.length > 0 && !allowance)
+      return {
+        ok: false,
+        refusal: "not-allowed",
+        message: {
+          text: `That application is no longer available from Slack in this workspace. ${this.#docs("administration")}`,
+        },
+      };
+    if (allowance?.channelPolicy === "direct-only" && visibility === "channel")
+      return {
+        ok: false,
+        refusal: "direct-only",
+        message: {
+          text: `${escapeSlack(allowance.name)} answers only in a direct message with @Datalayer. Open @Datalayer's Messages tab and ask there.`,
+        },
+      };
+
+    return {
+      ok: true,
+      resolved: {
+        applicationId,
+        binding,
+        principalId: link.principalId,
+        visibility,
+      },
+    };
+  }
+
+  /** The private selector over the applications the installation allows (S-208). */
+  selector(
+    allowances: readonly AppAllowance[],
+    prompt: Pick<IncomingPrompt, "channelId" | "eventId">,
+    switching = false,
+  ): SlackMessage {
+    const usable = allowances.filter(
+      (one) =>
+        one.enabled &&
+        (one.channelPolicy === "channels" || visibilityOf(prompt) === "direct"),
+    );
+    if (usable.length === 0)
+      return {
+        text: `No application is available from Slack here yet. Ask a Datalayer owner to choose one from the application's Ship tab. ${this.#docs("administration")}`,
+      };
+    const blocks: KnownBlock[] = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: switching
+            ? "Which application should answer next in this thread? A new session opens; the earlier one stays in Datalayer."
+            : "Which application should answer in this thread?",
+        },
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "static_select",
+            action_id: SELECT_APPLICATION_ACTION,
+            placeholder: { type: "plain_text", text: "Choose an application" },
+            options: usable.slice(0, 100).map((one) => ({
+              text: {
+                type: "plain_text" as const,
+                text: one.name.slice(0, 75),
+              },
+              value: JSON.stringify(
+                switching
+                  ? { app: one.applicationId, ev: "", sw: true }
+                  : { app: one.applicationId, ev: prompt.eventId },
+              ),
+            })),
+          },
+        ],
+      },
+    ];
+    return {
+      blocks,
+      text: "Choose the application that answers in this thread.",
+    };
+  }
+
+  #docs(anchor: string): string {
+    return slackLink(`${this.webUrl}/docs/slack#${anchor}`, "Read the guide");
+  }
+}

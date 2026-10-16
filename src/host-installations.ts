@@ -22,6 +22,8 @@ export interface AccountLinks {
     key: SlackInstallationKey,
     slackUserId: string,
   ): Promise<string | undefined>;
+  /** End a Slack user's link (their Unlink, or they are gone from Slack). */
+  unlink?(key: SlackInstallationKey, slackUserId: string): Promise<boolean>;
 }
 
 /** The links the store keeps: the development seed, and tests. */
@@ -40,6 +42,16 @@ export class StoreLinks implements AccountLinks {
 
   async connectUrlOf(): Promise<string | undefined> {
     return undefined;
+  }
+
+  async unlink(
+    key: SlackInstallationKey,
+    slackUserId: string,
+  ): Promise<boolean> {
+    const link = await this.store.getUserLink(key, slackUserId);
+    if (!link || link.status !== "active") return false;
+    await this.store.putUserLink({ ...link, status: "revoked" });
+    return true;
   }
 }
 
@@ -162,6 +174,50 @@ export class HostInstallations implements AccountLinks {
     if (!hostKey) return undefined;
     const { code } = await this.client.linkCode(hostKey, slackUserId);
     return `${this.options.webUrl.replace(/\/+$/, "")}${LINK_PAGE_PATH}?code=${encodeURIComponent(code)}`;
+  }
+
+  /** End a Slack user's link at Datalayer (`DELETE …/self/links/{user}`). */
+  async unlink(
+    key: SlackInstallationKey,
+    slackUserId: string,
+  ): Promise<boolean> {
+    const hostKey = await this.hostKeyOf(key);
+    if (!hostKey) return new StoreLinks(this.store).unlink(key, slackUserId);
+    return (await this.client.unlink(hostKey, slackUserId)) > 0;
+  }
+
+  /** The applications Datalayer allows this installation, kept to show and choose from. */
+  async refreshAllowances(key: SlackInstallationKey): Promise<void> {
+    const hostKey = await this.hostKeyOf(key);
+    if (!hostKey) return;
+    const self = await this.client.self(hostKey);
+    const now = new Date().toISOString();
+    await this.store.putAllowances(
+      key,
+      self.deployments.map((one) => ({
+        ...key,
+        applicationId: one.uid,
+        channelPolicy: self.directOnly.includes(one.uid)
+          ? ("direct-only" as const)
+          : ("channels" as const),
+        configuredBy: self.accountUid,
+        enabled: one.kept && !self.paused,
+        isDefault: one.uid === self.defaultDeployment,
+        name: one.appName || one.uid,
+        updatedAt: now,
+      })),
+    );
+    if (self.defaultDeployment)
+      await this.store.setDefaultApplication(key, self.defaultDeployment);
+    for (const channel of self.channels)
+      await this.store.putChannelBinding({
+        ...key,
+        applicationId: channel.deployment || undefined,
+        channelId: channel.id,
+        state: channel.state,
+        updatedAt: now,
+        updatedBy: self.accountUid,
+      });
   }
 
   /**

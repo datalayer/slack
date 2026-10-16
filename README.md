@@ -29,7 +29,58 @@ The repository currently provides the executable Phase 0/early Phase 2 foundatio
 - uninstall cleanup: `app_uninstalled` and `tokens_revoked` end the installation at Datalayer (`DELETE /api/ai-agents/v1/apps/hosts/self`), then remove its key, credentials, bindings and cards; late queued work and deliveries are dropped;
 - CI checks that prevent Jupyter, JupyterLab, Lumino, React DOM and Datalayer Jupyter imports.
 
-The server contracts exist (ai-agents `/api/ai-agents/v1/apps/hosts…`, the session API's `external_event_id` and `Idempotency-Key`), not yet deployed; this adapter speaks all of them. Still missing: the service deployed at a public HTTPS address and that address in the Ship card (`SLACK_APP_URL`), the staging/production Slack apps registered from the manifests, application selection beyond the installation's default, _Open in Datalayer_ deep links to the exact pending approval, and Marketplace work. The service says this through configuration rather than using a workspace token as a human identity. Enterprise Grid organization-wide installation is intentionally refused until its ownership and routing model is implemented.
+Added on 16 October 2026 (plans/SLACK.md round 1):
+
+- **ingress**: each signed event is normalized without a network call (`src/ingress.ts`) and persisted once by its event id, with the job, in one transaction. It is acknowledged only after that (`processBeforeResponse`). Bolt checks the signature over the raw body. A timestamp more than five minutes away, in the past or the future, is refused in front of Bolt (`src/health.ts`). Bot, self, unsupported-subtype and channel (non-mention) messages are ignored.
+- **the turn worker** (`src/service.ts`, `src/routing.ts`, `src/worker.ts`):
+  - It resolves installation → shared channel (refused) → linked person → application. The application is the thread's own, else an explicit choice, else the channel's binding, else the workspace default. It must be allowed here and in this kind of conversation. Every refusal is private (ephemeral in a channel) and starts no run.
+  - One turn runs at a time per thread. A second prompt is refused privately while one runs.
+  - _Stop_ names the run it stops.
+  - After a crash, a redelivery resumes the same message, and Datalayer replays the turn rather than running it again.
+  - _Use another application_ and _Start over_ archive the thread's binding and open a new session. Only the person who opened it can use them.
+  - An edited direct message offers _Send edited text as a new turn_. A deleted one is told that the record stays.
+- **rendering** (`src/semantic.ts`, `src/ag-ui.ts`, `src/presentation.ts`, `src/render.ts`, `src/rate-limit.ts`):
+  - The AG-UI stream is reduced to versioned semantic events (`test/contracts/semantic-events.json`).
+  - Answers stream with `chat.startStream` when the port offers it. Otherwise one placeholder is updated at most every 1.5 s.
+  - Calls are spaced per method and channel, and Slack's `Retry-After` is honored on a 429.
+  - Tables are shown as blocks, previewed when large. Citations are safe HTTPS links.
+  - A plain-text fallback is always present, and Slack's block limits are kept.
+- **records** (migration `003`): allowances, channel bindings, deliveries, the turn lock, held prompts, archived bindings, and the next application.
+- **operations**:
+  - `/healthz` and `/readyz` (the store and the queue only);
+  - redacted JSON logs with pseudonymous ids, and identity audit events (`src/observability.ts`);
+  - a production-graph import gate (`scripts/forbidden-graph.mjs`);
+  - a `Dockerfile` (node 20 slim, non-root, `npm ci --omit=dev`) and `scripts/migrate.mjs`;
+  - CI (`.github/workflows/ci.yml`).
+- **documents**: `docs/inventory.md` (S-001), `docs/adr/` (S-002) and `docs/threat-model.md` (S-003, draft).
+
+Still missing:
+
+- the service deployed at a public HTTPS address, and that address in the Ship card (`SLACK_APP_URL`);
+- the staging and production Slack apps registered from the manifests;
+- an OTEL exporter (spans are written as redacted log lines until then);
+- Marketplace work.
+
+The service says this through configuration rather than using a workspace token as a human identity. Enterprise Grid organization-wide installation is refused on purpose until its ownership and routing model is implemented.
+
+## Why each scope exists
+
+The manifests request exactly three bot scopes and no user scope. `test/operations.test.ts` fails if a manifest asks for more.
+
+| Scope               | Why @Datalayer needs it                                                                                                                         | What it does not allow                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `app_mentions:read` | Receive `@Datalayer …` in a channel the app was invited to (`app_mention`).                                                                     | Reading any other message in the channel.                                         |
+| `chat:write`        | Answer in the thread, update and stream the answer (`chat.update`, `chat.startStream`), and send private setup messages (`chat.postEphemeral`). | Posting in a channel the app was not invited to: there is no `chat:write.public`. |
+| `im:history`        | Receive the messages people send in @Datalayer's Messages tab (`message.im`).                                                                   | Reading other people's direct messages.                                           |
+
+Absent until a shipped feature needs them, each behind its own reauthorization:
+
+- `channels:history` and `groups:history`: optional thread context, S-401 and S-402;
+- `files:write`: files uploaded to Slack;
+- `users:read`;
+- `commands`.
+
+Because channel history is not read, an edit to a channel message is never delivered. Only edits in direct messages are handled.
 
 ## Requirements
 

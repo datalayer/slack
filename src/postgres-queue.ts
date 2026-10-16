@@ -14,10 +14,94 @@ export class PostgresWorkQueue<T> implements WorkQueue<T> {
     readonly pollIntervalMs = 250,
   ) {}
 
-  async enqueue(item: T): Promise<void> {
-    await this.database.query("INSERT INTO slack_jobs (payload) VALUES ($1)", [
-      item,
-    ]);
+  async enqueue(item: T, idempotencyKey?: string): Promise<boolean> {
+    if (!idempotencyKey) {
+      await this.database.query(
+        "INSERT INTO slack_jobs (payload) VALUES ($1)",
+        [item],
+      );
+      return true;
+    }
+    // The idempotency key and its job in one transaction (§7.1, 4).
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+      const claimed = await client.query(
+        "INSERT INTO slack_event_claims (event_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING event_id",
+        [`ingress:${idempotencyKey}`],
+      );
+      if (claimed.rowCount === 1)
+        await client.query("INSERT INTO slack_jobs (payload) VALUES ($1)", [
+          item,
+        ]);
+      await client.query("COMMIT");
+      return claimed.rowCount === 1;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async ready(): Promise<boolean> {
+    try {
+      await this.database.query("SELECT 1 FROM slack_jobs LIMIT 1");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Jobs that failed five times, with their metadata only: what the dead-letter tool lists. */
+  async dead(limit = 50): Promise<
+    Array<{
+      id: string;
+      attempts: number;
+      lastError: string | null;
+      createdAt: string;
+      kind: string;
+    }>
+  > {
+    const result = await this.database.query<{
+      attempts: number;
+      created_at: Date;
+      id: string;
+      kind: string | null;
+      last_error: string | null;
+    }>(
+      `SELECT id::text, attempts, last_error, created_at,
+              CASE WHEN payload ? 'delivery' THEN 'delivery'
+                   WHEN payload ? 'prompt' THEN 'prompt'
+                   ELSE 'other' END AS kind
+       FROM slack_jobs WHERE state = 'dead' ORDER BY id LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      attempts: row.attempts,
+      createdAt: new Date(row.created_at).toISOString(),
+      id: row.id,
+      kind: row.kind ?? "other",
+      lastError: row.last_error,
+    }));
+  }
+
+  /** Put a dead job back to work: once, by id. */
+  async replay(id: string): Promise<boolean> {
+    const result = await this.database.query(
+      "UPDATE slack_jobs SET state = 'ready', attempts = 0, available_at = now(), last_error = NULL WHERE id = $1 AND state = 'dead'",
+      [id],
+    );
+    return result.rowCount === 1;
+  }
+
+  /** A dead job's payload: privileged, read only through the audited tool. */
+  async payloadOf(id: string): Promise<unknown> {
+    const result = await this.database.query<{ payload: unknown }>(
+      "SELECT payload FROM slack_jobs WHERE id = $1",
+      [id],
+    );
+    return result.rows[0]?.payload;
   }
 
   start(handler: (item: T) => Promise<void>): void {

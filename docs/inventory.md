@@ -167,9 +167,12 @@ The adapter's side is in `src/deliveries.ts`: the route
 ## 8. Reuse boundary (S-005)
 
 The production graph is checked by `scripts/check-forbidden-imports.mjs`. It
-walks the source imports and the transitive production dependencies of
-`package-lock.json`, and fails on `@jupyter/*`, `@jupyterlab/*`, `@lumino/*`,
-`@datalayer/jupyter-*`, `react-dom`, `@primer/*` and `react`.
+walks the source imports and the installed transitive production graph
+(`npm ls --omit=dev --all`). It reads what was installed, so it works with or
+without a lockfile; the monorepo keeps none. It fails on `@jupyter/*`,
+`@jupyterlab/*`, `@jupyter-widgets/*`, `@lumino/*`, `@datalayer/jupyter-*`,
+`react-dom`, `react` and `@primer/*`. The lockfile walk (`productionGraph`) is
+kept for fixtures.
 
 **Decision, 16 October 2026: the Bolt adapter keeps its own AG-UI reduction.**
 `@datalayer/agent-runtimes` 1.5.44 publishes no `exports` map, and its

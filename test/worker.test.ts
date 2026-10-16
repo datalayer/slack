@@ -1,0 +1,303 @@
+import { describe, expect, it } from "vitest";
+
+import { MemoryWorkQueue } from "../src/queue.js";
+import { SlackAgentService } from "../src/service.js";
+import type { SemanticEvent } from "../src/semantic.js";
+import { MemorySlackStore } from "../src/store.js";
+import {
+  SEND_EDITED_ACTION,
+  SlackWorker,
+  type SlackJob,
+} from "../src/worker.js";
+import {
+  FakeAgents,
+  FakeClock,
+  FakeLinks,
+  FakeSlack,
+  installationKey,
+  installedStore,
+  keptLogger,
+  promptOf,
+} from "./support/fakes.js";
+
+class KeptQueue extends MemoryWorkQueue<SlackJob> {
+  readonly kept: SlackJob[] = [];
+  override async enqueue(item: SlackJob, key?: string): Promise<boolean> {
+    const taken = await super.enqueue(item, key);
+    if (taken) this.kept.push(item);
+    return taken;
+  }
+  override start(): void {}
+}
+
+function workerOf(
+  store: MemorySlackStore,
+  links = new FakeLinks(
+    new Map([
+      ["U1", "alice"],
+      ["U2", "bob"],
+    ]),
+  ),
+) {
+  const slack = new FakeSlack();
+  const agents = new FakeAgents();
+  const queue = new KeptQueue();
+  const service = new SlackAgentService(
+    store,
+    agents,
+    slack,
+    "https://datalayer.ai",
+    links,
+    {
+      clock: new FakeClock(),
+      logger: keptLogger().logger,
+    },
+  );
+  const homes: unknown[] = [];
+  const worker = new SlackWorker(service, queue, {
+    publishHome: async (_key, _user, view) => {
+      homes.push(view);
+    },
+  });
+  return { agents, homes, queue, service, slack, worker };
+}
+
+const allow = [
+  { id: "dep-1", name: "Launch Review" },
+  { id: "dep-2", name: "Desk" },
+];
+
+describe("choosing and switching applications (S-208)", () => {
+  it("runs a held prompt with the chosen application, for its own person only, once", async () => {
+    const store = await installedStore({ allow });
+    const { queue, service, worker } = workerOf(store);
+    await service.handlePrompt(promptOf(), "B1"); // no default: the selector, the prompt held
+    await expect(
+      worker.selected(installationKey, { app: "dep-2", ev: "Ev1" }, "U2"),
+    ).resolves.toBe("refused");
+    await expect(
+      worker.selected(installationKey, { app: "dep-9", ev: "Ev1" }, "U1"),
+    ).resolves.toBe("refused");
+    await expect(
+      worker.selected(installationKey, { app: "dep-2", ev: "Ev1" }, "U1"),
+    ).resolves.toBe("started");
+    await expect(
+      worker.selected(installationKey, { app: "dep-2", ev: "Ev1" }, "U1"),
+    ).resolves.toBe("refused");
+    expect(queue.kept).toEqual([
+      {
+        prompt: expect.objectContaining({
+          applicationId: "dep-2",
+          eventId: "Ev1",
+        }),
+      },
+    ]);
+  });
+
+  it("switches application into a new session, keeping the old binding's record", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const { agents, service, slack, worker } = workerOf(store);
+    await service.handlePrompt(promptOf(), "B1");
+    const before = await store.getThread(promptOf());
+    expect(before).toMatchObject({ applicationId: "dep-1", sessionId: "S-0" });
+
+    // Bob did not open the session: he cannot switch it.
+    await expect(
+      worker.selected(
+        installationKey,
+        { app: "dep-2", ev: "", sw: true },
+        "U2",
+        promptOf(),
+      ),
+    ).resolves.toBe("refused");
+    await expect(
+      worker.selected(
+        installationKey,
+        { app: "dep-2", ev: "", sw: true },
+        "U1",
+        promptOf(),
+      ),
+    ).resolves.toBe("switched");
+    expect(await store.getThread(promptOf())).toBeUndefined();
+    expect(await store.getArchivedThreads(promptOf())).toEqual([before]);
+    expect(slack.of("chat.postMessage").at(-1)?.message?.text).toContain(
+      "opens a new session with Desk",
+    );
+
+    await service.handlePrompt(promptOf({ eventId: "Ev2" }), "B1");
+    const second = agents.requests.at(-1);
+    expect(second).toMatchObject({
+      applicationId: "dep-2",
+      sessionGeneration: 1,
+    });
+    expect(second?.sessionId).toBeUndefined();
+    expect(await store.getThread(promptOf())).toMatchObject({
+      applicationId: "dep-2",
+      sessionId: "S-1",
+    });
+    expect(await store.getNextApplication(promptOf())).toBeUndefined();
+  });
+
+  it("starts over only for the person who opened the session, never mid-answer", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const { service, worker } = workerOf(store);
+    await service.handlePrompt(promptOf(), "B1");
+    await expect(worker.startOver(promptOf(), "U2")).resolves.toBe(false);
+    await expect(worker.startOver(promptOf(), "U9")).resolves.toBe(false);
+    await store.beginTurn(
+      promptOf(),
+      "Ev5",
+      new Date(new FakeClock().now()),
+      60_000,
+    );
+    await expect(worker.startOver(promptOf(), "U1")).resolves.toBe(false);
+    await store.endTurn(promptOf(), "Ev5");
+    await expect(worker.startOver(promptOf(), "U1")).resolves.toBe(true);
+    expect(await store.getArchivedThreads(promptOf())).toHaveLength(1);
+  });
+});
+
+describe("edits, deletes and answers in Slack (S-209, S-307)", () => {
+  it("offers to send an edited direct message as a new turn, which only its person can send, once", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const { queue, slack, worker } = workerOf(store);
+    const edited = promptOf({
+      channelId: "D1",
+      eventId: "EvEdit",
+      text: "the new words",
+    });
+    await worker.handle({ kind: "edited", originalTs: "1.0", prompt: edited });
+    const offer = slack.of("private")[0]?.message;
+    expect(offer?.text).toContain("Your edit was not sent");
+    expect(JSON.stringify(offer?.blocks)).toContain(SEND_EDITED_ACTION);
+    await expect(
+      worker.sendEdited(installationKey, { ev: "EvEdit" }, "U2", "5.5"),
+    ).resolves.toBe(false);
+    await expect(
+      worker.sendEdited(installationKey, { ev: "EvEdit" }, "U1", "5.5"),
+    ).resolves.toBe(true);
+    await expect(
+      worker.sendEdited(installationKey, { ev: "EvEdit" }, "U1", "5.6"),
+    ).resolves.toBe(false);
+    expect(queue.kept).toEqual([
+      {
+        prompt: expect.objectContaining({
+          eventId: "edit:EvEdit:5.5",
+          text: "the new words",
+        }),
+      },
+    ]);
+  });
+
+  it("says a deleted message stays in Datalayer's record", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const { service, slack, worker } = workerOf(store);
+    await service.handlePrompt(promptOf({ channelId: "D1" }), "B1");
+    await worker.handle({
+      deletedTs: "1.0",
+      kind: "deleted",
+      thread: promptOf({ channelId: "D1" }),
+      userId: "U1",
+    });
+    expect(slack.of("private").at(-1)?.message?.text).toContain(
+      "does not delete it from Datalayer",
+    );
+  });
+
+  it("sends a choice as the presser's own turn in the thread", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const { queue, worker } = workerOf(store);
+    await worker.answered(promptOf(), "Option B", "U2", "7.7");
+    await worker.answered(promptOf(), "Option B", "U2", "7.7"); // a double click
+    expect(queue.kept).toEqual([
+      {
+        prompt: expect.objectContaining({
+          eventId: "ask:1.0:7.7",
+          text: "Option B",
+          threadTs: "1.0",
+          userId: "U2",
+        }),
+      },
+    ]);
+  });
+});
+
+describe("App Home and unlinking (S-103, S-104)", () => {
+  it("unlinks the person from Home, audits it and republishes their Home", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const links = new FakeLinks(new Map([["U1", "alice"]]));
+    const { homes, worker } = workerOf(store, links);
+    await worker.unlink(installationKey, "U1");
+    expect(links.unlinked).toEqual(["U1"]);
+    expect(JSON.stringify(homes.at(-1))).toContain("Not connected");
+  });
+});
+
+describe("uninstall races (S-106, §12.1 persistence)", () => {
+  it("drops a queued mention, an action and a delivery after app_uninstalled", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const { agents, slack, worker } = workerOf(store);
+    await store.holdPrompt(promptOf({ eventId: "EvHeld" }));
+    await store.deleteInstallation(installationKey); // app_uninstalled, tokens_revoked
+    await worker.handle({ prompt: promptOf({ eventId: "EvLate" }) });
+    await worker.handle({ key: installationKey, kind: "home", userId: "U1" });
+    await worker.handle({
+      kind: "edited",
+      originalTs: "1.0",
+      prompt: promptOf({ channelId: "D1" }),
+    });
+    await expect(
+      worker.selected(installationKey, { app: "dep-1", ev: "EvHeld" }, "U1"),
+    ).resolves.toBe("refused");
+    expect(agents.requests).toHaveLength(0);
+    expect(slack.calls).toHaveLength(0);
+  });
+
+  it("stops a turn mid-stream when the workspace is uninstalled under it", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack();
+    const real = slack.updateMessage.bind(slack);
+    // Slack's real port refuses a call for an installation no longer active.
+    slack.updateMessage = async (key, ts, message) => {
+      if (!(await store.getInstallation(key)))
+        throw new Error("No active Slack installation was found.");
+      return real(key, ts, message);
+    };
+    let uninstalled = false;
+    async function* stream(): AsyncIterable<SemanticEvent> {
+      yield { kind: "text", text: "Half of an answer" };
+      await store.deleteInstallation(installationKey);
+      uninstalled = true;
+      yield { kind: "text", text: " that never shows" };
+      yield { kind: "completion" };
+    }
+    const agents = new FakeAgents(() => ({
+      run: {},
+      sessionId: "S1",
+      updates: stream(),
+    }));
+    const service = new SlackAgentService(
+      store,
+      agents,
+      slack,
+      "https://datalayer.ai",
+      new FakeLinks(),
+      {
+        clock: new FakeClock(),
+        logger: keptLogger().logger,
+      },
+    );
+    await service.handlePrompt(promptOf(), "B1");
+    expect(uninstalled).toBe(true);
+    expect(
+      slack
+        .of("chat.update")
+        .map((call) => call.message?.text)
+        .join(" "),
+    ).not.toContain("never shows");
+    // Nothing of the workspace is left behind, and a redelivery is dropped.
+    expect(await store.getThread(promptOf())).toBeUndefined();
+    await service.handlePrompt(promptOf(), "B1");
+    expect(agents.requests).toHaveLength(1);
+  });
+});

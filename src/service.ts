@@ -1,15 +1,70 @@
 import type { AgentClient } from "./agent-client.js";
+import { HostRefusedError } from "./host-client.js";
 import { StoreLinks, type AccountLinks } from "./host-installations.js";
 import type {
   IncomingPrompt,
   SlackInstallationKey,
   ThreadKey,
+  TurnRequest,
 } from "./domain.js";
-import type { SlackPort } from "./slack-port.js";
+import { Logger } from "./observability.js";
+import { stripAppMention } from "./presentation.js";
+import { SlackRateLimiter, systemClock, type Clock } from "./rate-limit.js";
+import { TurnRenderer } from "./render.js";
+import { TurnRouting, type Refusal } from "./routing.js";
+import type { SlackMessage, SlackPort } from "./slack-port.js";
 import type { SlackStore } from "./store.js";
-import { stripAppMention, TurnPresentation } from "./presentation.js";
 
+/** A running turn that said nothing for this long may be taken over (a crashed worker). */
+export const TURN_STALE_AFTER_MS = 15 * 60 * 1000;
+
+/**
+ * A running turn of the same event is resumed only once it is older than the
+ * queue's lease (`postgres-queue.ts`, five minutes): before that, its worker
+ * may still be alive, and the job is a duplicate in flight.
+ */
+export const RESUME_AFTER_MS = 5 * 60 * 1000;
+
+/** Slack's answer when the person is gone from the workspace: their link ends (S-103). */
+export const GONE_USER_ERRORS = new Set([
+  "user_not_found",
+  "user_disabled",
+  "account_inactive",
+]);
+
+/** What the Stop button carries: the session, the run it names and the event that began it. */
+export type StopValue = Readonly<{ s: string; r?: string; e: string }>;
+
+export type ServiceOptions = Readonly<{
+  clock?: Clock;
+  limiter?: SlackRateLimiter;
+  logger?: Logger;
+  cadenceMs?: number;
+  staleAfterMs?: number;
+  resumeAfterMs?: number;
+  /** Where *Open in Datalayer* goes for a session: a one-use handoff when Datalayer answers one. */
+  openUrlOf?: (sessionId: string, request: TurnRequest) => Promise<string>;
+}>;
+
+function slackErrorOf(error: unknown): string | undefined {
+  const data = (error as { data?: { error?: unknown } } | undefined)?.data;
+  return typeof data?.error === "string" ? data.error : undefined;
+}
+
+/**
+ * The turn worker (plans/SLACK.md §7.2, S-202 to S-207): resolve who asks and
+ * which application answers; one turn at a time per thread (a second prompt
+ * is refused privately while one runs); the session created or resumed with
+ * the speaker and Slack provenance, idempotent by the Slack event id; its
+ * semantic events rendered at a bounded cadence; a redelivery after a crash
+ * resumes the same message, and Datalayer replays rather than runs again.
+ */
 export class SlackAgentService {
+  readonly routing: TurnRouting;
+  readonly limiter: SlackRateLimiter;
+  readonly logger: Logger;
+  readonly #clock: Clock;
+
   constructor(
     readonly store: SlackStore,
     readonly agents: AgentClient,
@@ -17,126 +72,240 @@ export class SlackAgentService {
     readonly webUrl: string,
     /** Who is linked, and how one connects: Datalayer's record, through the host key. */
     readonly links: AccountLinks = new StoreLinks(store),
-  ) {}
+    readonly options: ServiceOptions = {},
+  ) {
+    this.#clock = options.clock ?? systemClock;
+    this.limiter = options.limiter ?? new SlackRateLimiter(this.#clock);
+    this.logger = options.logger ?? new Logger();
+    this.routing = new TurnRouting(store, links, webUrl);
+  }
+
+  /** Say something to one person only; a person gone from Slack is unlinked (fail closed). */
+  async privately(
+    key: SlackInstallationKey | ThreadKey,
+    userId: string,
+    message: SlackMessage,
+  ): Promise<void> {
+    try {
+      await this.slack.postPrivate(key, userId, message);
+    } catch (error) {
+      const code = slackErrorOf(error);
+      if (!code || !GONE_USER_ERRORS.has(code)) throw error;
+      await this.links.unlink?.(key, userId);
+      this.logger.audit("identity.unlinked", {
+        installation: `${key.appId}:${key.enterpriseId ?? "-"}:${key.teamId}`,
+        reason: code,
+        slackUser: userId,
+      });
+    }
+  }
+
+  #refused(prompt: IncomingPrompt, refusal: Refusal | "busy" | "empty"): void {
+    this.logger.audit("identity.refused", {
+      installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
+      reason: refusal,
+      slackUser: prompt.userId,
+    });
+  }
 
   async handlePrompt(
     prompt: IncomingPrompt,
     botUserId?: string,
   ): Promise<void> {
-    if (!(await this.store.claimEvent(prompt.eventId))) return;
-    const installationKey: SlackInstallationKey = {
-      appId: prompt.appId,
-      enterpriseId: prompt.enterpriseId,
-      teamId: prompt.teamId,
-    };
-    const installation = await this.store.getInstallation(installationKey);
-    if (!installation || installation.status !== "active") return;
-
-    const link = await this.links.linkOf(installationKey, prompt.userId);
-    if (!link) {
-      // No session starts before consent (§8): a one-use link to the
-      // landing's confirm page, when the workspace is bound to Datalayer.
-      const connect = await this.links.connectUrlOf(
-        installationKey,
-        prompt.userId,
-      );
-      await this.slack.postPrivate(installationKey, prompt.userId, {
-        text: connect
-          ? `Connect your Datalayer account before asking @Datalayer: <${connect}|Connect your Datalayer account> (the link works once, for ten minutes). How it works: ${this.webUrl}/docs/slack#install-and-connect`
-          : `Connect your Datalayer account before asking @Datalayer: ${this.webUrl}/docs/slack#install-and-connect`,
-      });
+    const resolution = await this.routing.resolve(prompt);
+    if (!resolution.ok) {
+      if (resolution.refusal === "not-installed") return; // late work is dropped
+      if (resolution.refusal === "no-application" && resolution.message?.blocks)
+        await this.store.holdPrompt(prompt);
+      this.#refused(prompt, resolution.refusal);
+      if (resolution.message)
+        await this.privately(prompt, prompt.userId, resolution.message);
       return;
     }
-
-    const applicationId =
-      await this.store.getDefaultApplication(installationKey);
-    if (!applicationId) {
-      await this.slack.postPrivate(installationKey, prompt.userId, {
-        text: `No default application is available. Ask a Datalayer owner to configure Slack: ${this.webUrl}/docs/slack#administration`,
-      });
-      return;
-    }
+    const { resolved } = resolution;
 
     const text = stripAppMention(prompt.text, botUserId);
     if (!text) {
-      await this.slack.postPrivate(installationKey, prompt.userId, {
+      await this.privately(prompt, prompt.userId, {
         text: "Add a question after @Datalayer.",
       });
       return;
     }
 
-    const existing = await this.store.getThread(prompt);
-    const placeholderTs = await this.slack.postThread(prompt, {
-      text: "_Working…_",
-    });
-    const turn = await this.agents.startTurn({
-      applicationId,
+    const now = new Date(this.#clock.now());
+    const claim = await this.store.beginTurn(
+      prompt,
+      prompt.eventId,
+      now,
+      this.options.staleAfterMs ?? TURN_STALE_AFTER_MS,
+    );
+    if (claim.outcome === "done") return; // a duplicate of an answered event
+    if (
+      claim.outcome === "resumed" &&
+      now.getTime() - new Date(claim.turn.startedAt).getTime() <
+        (this.options.resumeAfterMs ?? RESUME_AFTER_MS)
+    )
+      return; // the same event, its worker still answering
+    if (claim.outcome === "busy") {
+      this.#refused(prompt, "busy");
+      await this.privately(prompt, prompt.userId, {
+        text: "@Datalayer is still answering in this thread. Wait for its answer, or press Stop on it, then ask again.",
+      });
+      return;
+    }
+
+    const request: TurnRequest = {
+      applicationId: resolved.applicationId,
       externalEventId: prompt.eventId,
       externalUserId: prompt.userId,
-      principalId: link.principalId,
+      principalId: resolved.principalId,
       prompt: text,
-      provenance: prompt,
-      sessionId: existing?.sessionId,
-    });
-    const binding = {
-      applicationId,
-      appId: prompt.appId,
-      channelId: prompt.channelId,
-      enterpriseId: prompt.enterpriseId,
-      openedByPrincipalId: existing?.openedByPrincipalId ?? link.principalId,
-      // Until the turn finishes, its status message waits for an answer: a
-      // turn paused on an approval is finished by `turn.completed`.
-      pendingMessageTs: placeholderTs,
-      sessionId: turn.sessionId,
-      teamId: prompt.teamId,
-      threadTs: prompt.threadTs,
-      updatedAt: new Date().toISOString(),
+      provenance: {
+        appId: prompt.appId,
+        channelId: prompt.channelId,
+        enterpriseId: prompt.enterpriseId,
+        teamId: prompt.teamId,
+        threadTs: prompt.threadTs,
+      },
+      sessionId: resolved.binding?.sessionId,
+      sessionGeneration: resolved.binding
+        ? undefined
+        : (await this.store.getArchivedThreads(prompt)).length,
     };
-    await this.store.putThread(binding);
 
-    const presentation = new TurnPresentation();
-    const openUrl = `${this.webUrl}/loop/session/${encodeURIComponent(turn.sessionId)}`;
-    let lastPublishedAt = 0;
-    let hasUnpublishedUpdate = false;
+    let turn;
     try {
-      for await (const update of turn.updates) {
-        presentation.apply(update);
-        hasUnpublishedUpdate = true;
-        const now = Date.now();
-        const terminal = update.kind === "complete" || update.kind === "error";
-        if (terminal || now - lastPublishedAt >= 750) {
-          await this.slack.updateMessage(
-            prompt,
-            placeholderTs,
-            presentation.message(openUrl),
-          );
-          lastPublishedAt = now;
-          hasUnpublishedUpdate = false;
-        }
-      }
-      if (hasUnpublishedUpdate)
-        await this.slack.updateMessage(
-          prompt,
-          placeholderTs,
-          presentation.message(openUrl),
-        );
-      if (presentation.complete)
-        await this.store.putThread({
-          ...binding,
-          pendingMessageTs: undefined,
-          updatedAt: new Date().toISOString(),
+      // The exchange is the authorization: the linked person may open this
+      // application, now. A resumed turn sends the same event id: Datalayer
+      // answers the original turn and runs nothing again.
+      turn = await this.agents.startTurn(request);
+    } catch (error) {
+      await this.store.endTurn(prompt, prompt.eventId);
+      if (error instanceof HostRefusedError && error.status < 500) {
+        this.#refused(prompt, "no-access");
+        await this.privately(prompt, prompt.userId, {
+          text: `Datalayer did not let this turn start: ${error.detail} Read ${this.webUrl}/docs/slack#troubleshooting`,
         });
-    } catch {
-      presentation.apply({
+        return;
+      }
+      throw error;
+    }
+
+    const openUrl = this.options.openUrlOf
+      ? await this.options
+          .openUrlOf(turn.sessionId, request)
+          .catch(() => this.#sessionUrl(turn.sessionId))
+      : this.#sessionUrl(turn.sessionId);
+    const renderer = new TurnRenderer(this.slack, this.limiter, prompt, {
+      askValue: prompt.eventId,
+      cadenceMs: this.options.cadenceMs,
+      clock: this.#clock,
+      messageTs: claim.turn.messageTs,
+      openUrl,
+      recipientUserId: prompt.userId,
+    });
+    const stopValue = (runId?: string): string =>
+      JSON.stringify({
+        e: prompt.eventId,
+        r: runId,
+        s: turn.sessionId,
+      } satisfies StopValue);
+    renderer.stopValue = stopValue();
+
+    try {
+      const messageTs = await renderer.begin();
+      await this.store.updateTurn(prompt, prompt.eventId, {
+        messageTs,
+        sessionId: turn.sessionId,
+      });
+      const binding = {
+        ...request.provenance,
+        applicationId: resolved.applicationId,
+        lastEventId: prompt.eventId,
+        lastRunId: resolved.binding?.lastRunId,
+        openedByPrincipalId:
+          resolved.binding?.openedByPrincipalId ?? resolved.principalId,
+        // Until the turn finishes, its status message waits for an answer: a
+        // turn paused on an approval is finished by `turn.completed`.
+        pendingMessageTs: messageTs,
+        sessionId: turn.sessionId,
+        updatedAt: now.toISOString(),
+        visibility: resolved.visibility,
+      };
+      await this.store.putThread(binding);
+      await this.store.clearNextApplication(prompt);
+
+      for await (const event of turn.updates) {
+        if (turn.run.id && renderer.runId !== turn.run.id) {
+          renderer.runId = turn.run.id;
+          renderer.stopValue = stopValue(turn.run.id);
+          await this.store.updateTurn(prompt, prompt.eventId, {
+            runId: turn.run.id,
+          });
+        }
+        await renderer.apply(event);
+      }
+      await renderer.finish();
+      await this.store.putThread({
+        ...binding,
+        lastRunId: turn.run.id ?? binding.lastRunId,
+        pendingMessageTs: renderer.presentation.ended
+          ? undefined
+          : binding.pendingMessageTs,
+        updatedAt: new Date(this.#clock.now()).toISOString(),
+      });
+    } catch (error) {
+      this.logger.warn("turn.interrupted", {
+        error_name: error instanceof Error ? error.name : "unknown",
+      });
+      await renderer.apply({
         kind: "error",
         message: "The connection to Datalayer was interrupted.",
       });
-      await this.slack.updateMessage(
-        prompt,
-        placeholderTs,
-        presentation.message(openUrl),
-      );
+      await renderer.finish().catch(() => undefined);
+    } finally {
+      await this.store.endTurn(prompt, prompt.eventId);
     }
+  }
+
+  /**
+   * Stop (S-207): only the run the button names, only while it runs, only
+   * for a person linked in this workspace; Datalayer stops it as that person
+   * (their own exchange), so a person who may not open the application
+   * cannot stop it either.
+   */
+  async stop(
+    thread: ThreadKey,
+    value: StopValue,
+    slackUserId: string,
+  ): Promise<"stopped" | "not-running" | "not-linked"> {
+    const turn = await this.store.getTurn(thread);
+    if (
+      !turn ||
+      turn.state !== "running" ||
+      turn.eventId !== value.e ||
+      turn.sessionId !== value.s ||
+      (value.r !== undefined && turn.runId !== value.r)
+    )
+      return "not-running";
+    const link = await this.links.linkOf(thread, slackUserId);
+    if (!link) return "not-linked";
+    const binding = await this.store.getThread(thread);
+    if (!binding) return "not-running";
+    await this.agents.stopTurn(value.s, {
+      applicationId: binding.applicationId,
+      externalEventId: `stop:${value.e}`,
+      externalUserId: slackUserId,
+      principalId: link.principalId,
+      prompt: "",
+      provenance: thread,
+      sessionId: value.s,
+    });
+    return "stopped";
+  }
+
+  #sessionUrl(sessionId: string): string {
+    return `${this.webUrl.replace(/\/+$/, "")}/loop/session/${encodeURIComponent(sessionId)}`;
   }
 }
 

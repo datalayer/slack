@@ -10,7 +10,8 @@ import {
   NOT_BOUND,
   sessionUidOf,
 } from "../src/agent-client.js";
-import type { AgentUpdate, TurnRequest } from "../src/domain.js";
+import type { TurnRequest } from "../src/domain.js";
+import type { SemanticEvent } from "../src/semantic.js";
 
 const contracts = JSON.parse(
   readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
@@ -55,8 +56,8 @@ function sse(...events: unknown[]): Response {
   );
 }
 
-async function collect(updates: AsyncIterable<AgentUpdate>) {
-  const seen: AgentUpdate[] = [];
+async function collect(updates: AsyncIterable<SemanticEvent>) {
+  const seen: SemanticEvent[] = [];
   for await (const update of updates) seen.push(update);
   return seen;
 }
@@ -119,6 +120,11 @@ describe("Datalayer agent client", () => {
           },
           { type: "TOOL_CALL_START", toolCallId: "c1", toolCallName: "search" },
           { type: "TOOL_CALL_END", toolCallId: "c1" },
+          {
+            type: "TOOL_CALL_RESULT",
+            toolCallId: "c1",
+            content: JSON.stringify({ success: true }),
+          },
           { type: "TEXT_MESSAGE_CONTENT", delta: "Option B " },
           { type: "TEXT_MESSAGE_CONTENT", delta: "is safer." },
           { type: "RUN_FINISHED" },
@@ -168,12 +174,14 @@ describe("Datalayer agent client", () => {
       },
     });
     expect(seen).toEqual([
-      { kind: "tool", name: "search", status: "running" },
-      { kind: "tool", name: "search", status: "complete" },
+      { kind: "tool", id: "c1", name: "search", status: "running" },
+      { kind: "tool", id: "c1", name: "search", status: "complete" },
       { kind: "text", text: "Option B " },
       { kind: "text", text: "is safer." },
-      { kind: "complete" },
+      { kind: "completion" },
     ]);
+    // The run the stream named: what the Stop button stops.
+    expect(turn.run.id).toBe("t1");
   });
 
   it("answers a replayed turn from the session, running nothing again", async () => {
@@ -209,7 +217,7 @@ describe("Datalayer agent client", () => {
     const turn = await client.startTurn({ ...request, sessionId: "S1" });
 
     expect(await collect(turn.updates)).toEqual([
-      { kind: "complete", text: "Option B is safer." },
+      { kind: "completion", text: "Option B is safer." },
     ]);
     expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "GET"]);
     expect(calls[1]?.body).toEqual({
