@@ -511,18 +511,37 @@ export function registerSlackListeners(
       : undefined;
   };
 
+  /**
+   * The thread a busy notice's Stop names (S-206): only when pressed in that
+   * thread's own channel. The service still stops only the running turn of
+   * that event and session, for a linked member.
+   */
+  const stoppedThread = (
+    body: BlockAction,
+    value: StopValue,
+  ): ThreadKey | undefined => {
+    const key = installationKeyOf({
+      api_app_id: body.api_app_id,
+      enterprise_id: body.enterprise?.id,
+      team_id: body.team?.id ?? body.user.team_id,
+    });
+    if (!key || !value.c || !value.t || body.channel?.id !== value.c)
+      return undefined;
+    return { ...key, channelId: value.c, threadTs: value.t };
+  };
+
   app.action(STOP_ACTION, async ({ ack, body, logger }) => {
     await ack();
     try {
       const action = body as BlockAction;
       const pressed = action.actions[0];
-      const thread = threadOf(action);
-      if (!thread || pressed?.type !== "button") return;
-      await worker.stop(
-        thread,
-        JSON.parse(pressed.value ?? "{}") as StopValue,
-        action.user.id,
-      );
+      if (pressed?.type !== "button") return;
+      const value = JSON.parse(pressed.value ?? "{}") as StopValue;
+      // The busy notice's Stop names its thread (S-206): it was sent
+      // privately, in that channel or the person's direct message.
+      const thread = value.t ? stoppedThread(action, value) : threadOf(action);
+      if (!thread) return;
+      await worker.stop(thread, value, action.user.id);
     } catch (error) {
       logger.error("Failed to stop the turn", error);
     }

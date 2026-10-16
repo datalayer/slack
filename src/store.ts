@@ -118,6 +118,15 @@ export interface SlackStore extends QuotaStore {
       Pick<ThreadTurn, "heartbeatAt" | "messageTs" | "runId" | "sessionId">
     >,
   ): Promise<void>;
+  /**
+   * Mark (or, with no member, unmark) who stopped the thread's running turn
+   * for this event (S-205); a later event's turn starts unmarked.
+   */
+  markStopped(
+    key: ThreadKey,
+    eventId: string,
+    slackUserId: string | undefined,
+  ): Promise<void>;
   endTurn(key: ThreadKey, eventId: string): Promise<void>;
   getTurn(key: ThreadKey): Promise<ThreadTurn | undefined>;
   /** Forget a thread's binding: after it was archived (start over, another application). */
@@ -387,6 +396,16 @@ export class MemorySlackStore implements SlackStore {
     const current = this.#turns.get(threadKey(key));
     if (current?.eventId === eventId)
       this.#turns.set(threadKey(key), { ...current, ...patch });
+  }
+
+  async markStopped(
+    key: ThreadKey,
+    eventId: string,
+    slackUserId: string | undefined,
+  ): Promise<void> {
+    const current = this.#turns.get(threadKey(key));
+    if (current?.eventId === eventId)
+      this.#turns.set(threadKey(key), { ...current, stoppedBy: slackUserId });
   }
 
   async endTurn(key: ThreadKey, eventId: string): Promise<void> {

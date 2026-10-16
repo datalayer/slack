@@ -260,6 +260,30 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       expect(taken.turn.heartbeatAt).toBeUndefined();
     });
 
+    it("marks who stopped a running turn, unmarks it, and starts the next turn unmarked (S-205)", async () => {
+      await reset();
+      await installed(store);
+      await store.beginTurn(thread, "Ev1", at, 60_000);
+      // Another event's mark is not this turn's.
+      await store.markStopped(thread, "Ev0", "U9");
+      expect((await store.getTurn(thread))?.stoppedBy).toBeUndefined();
+      await store.markStopped(thread, "Ev1", "U1");
+      expect((await store.getTurn(thread))?.stoppedBy).toBe("U1");
+      await store.markStopped(thread, "Ev1", undefined);
+      expect((await store.getTurn(thread))?.stoppedBy).toBeUndefined();
+      await store.markStopped(thread, "Ev1", "U1");
+      await store.endTurn(thread, "Ev1");
+      const next = await store.beginTurn(
+        thread,
+        "Ev2",
+        new Date(at.getTime() + 1_000),
+        60_000,
+      );
+      expect(next.outcome).toBe("started");
+      expect(next.turn.stoppedBy).toBeUndefined();
+      expect((await store.getTurn(thread))?.stoppedBy).toBeUndefined();
+    });
+
     it("archives a binding, forgets it and remembers the next application", async () => {
       await reset();
       await installed(store);

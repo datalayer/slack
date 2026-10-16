@@ -82,6 +82,8 @@ export class TurnRenderer {
   runId?: string;
   /** What the Stop button carries: the session and the run it names. */
   stopValue?: string;
+  /** The Slack member whose Stop ended the turn (S-205), named on the final status. */
+  stoppedBy?: string;
 
   constructor(
     readonly slack: SlackPort,
@@ -162,6 +164,7 @@ export class TurnRenderer {
         askValue: this.options.askValue,
         direct: this.key.channelId.startsWith("D"),
         events: this.options.events,
+        stoppedBy: this.stoppedBy,
         streamed: true,
         threadMenu: true,
       });
@@ -226,6 +229,7 @@ export class TurnRenderer {
       askValue: this.options.askValue,
       runId: this.runId,
       stopValue: this.stopValue,
+      stoppedBy: this.stoppedBy,
     });
   }
 }

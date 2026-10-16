@@ -124,6 +124,12 @@ export type ThreadTurn = ThreadKey &
     /** The message the answer is in: what a recovered turn resumes. */
     messageTs?: string;
     sessionId?: string;
+    /**
+     * The Slack member whose Stop ended this turn (S-205): written before
+     * Datalayer is asked to stop it, read by the worker answering it when its
+     * stream ends without an ending (a stopped session's stream just ends).
+     */
+    stoppedBy?: string;
   }>;
 
 /**

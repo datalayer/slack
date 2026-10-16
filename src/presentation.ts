@@ -27,6 +27,8 @@ export const TABLE_PREVIEW_ROWS = 12;
 const TABLE_CHARACTERS = 2_400;
 
 export const STOP_ACTION = "datalayer_stop_turn";
+/** A Slack member id: what may be written as a mention. */
+export const SLACK_MEMBER_ID = /^[UW][A-Z0-9]{1,23}$/;
 export const ASK_CHOICE_ACTION = "datalayer_ask_choice";
 export const OPEN_ACTION = "datalayer_open_in_datalayer";
 /** The finished answer's menu: *Use another application*, *Start over* (S-208). */
@@ -198,6 +200,8 @@ export class TurnPresentation extends TurnState {
        * at `chat.stopStream`, so they carry no answer text or table again.
        */
       streamed?: boolean;
+      /** The Slack member whose Stop ended the turn (S-205): named on its status line. */
+      stoppedBy?: string;
     } = {},
   ): SlackMessage {
     const blocks: KnownBlock[] = [];
@@ -268,11 +272,23 @@ export class TurnPresentation extends TurnState {
         : this.ending === "completion"
           ? undefined
           : this.status;
+    // A member id is Slack's own (`U…`/`W…`), so the mention is never input.
+    const stopper =
+      this.ending === "stop" &&
+      options.stoppedBy &&
+      SLACK_MEMBER_ID.test(options.stoppedBy)
+        ? options.stoppedBy
+        : undefined;
     if (status)
       blocks.push({
         type: "context",
         elements: [
-          { type: "mrkdwn", text: `_${bounded(escapeSlack(status), 300)}_` },
+          {
+            type: "mrkdwn",
+            text: stopper
+              ? `_Stopped by <@${stopper}>_`
+              : `_${bounded(escapeSlack(status), 300)}_`,
+          },
         ],
       });
     const actions: KnownBlock = {

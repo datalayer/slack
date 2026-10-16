@@ -20,7 +20,7 @@ import type {
   TurnRequest,
 } from "./domain.js";
 import { LOG_SALT } from "./observability.js";
-import { stripAppMention } from "./presentation.js";
+import { STOP_ACTION, stripAppMention } from "./presentation.js";
 import { retryingSlackPort, SlackRateLimiter } from "./rate-limit.js";
 import { TurnRenderer } from "./render.js";
 import { TurnRouting, type Refusal } from "./routing.js";
@@ -50,8 +50,58 @@ export const GONE_USER_ERRORS = new Set([
   "account_inactive",
 ]);
 
-/** What the Stop button carries: the session, the run it names and the event that began it. */
-export type StopValue = Readonly<{ s: string; r?: string; e: string }>;
+/**
+ * What the Stop button carries: the session, the run it names and the event
+ * that began it. The busy notice's Stop (S-206) also names its thread
+ * (`c`, `t`), as the selector does: it is sent privately, and its own
+ * message is no message of the thread's.
+ */
+export type StopValue = Readonly<{
+  s: string;
+  r?: string;
+  e: string;
+  c?: string;
+  t?: string;
+}>;
+
+/** What the busy notice says (S-206): with a Stop on it while the running answer has a session. */
+export function busyNotice(
+  thread: ThreadKey,
+  running: Readonly<{ eventId: string; runId?: string; sessionId?: string }>,
+): SlackMessage {
+  if (!running.sessionId)
+    return {
+      text: "@Datalayer is still answering in this thread. Wait for its answer, then ask again.",
+    };
+  const text =
+    "@Datalayer is still answering in this thread. Wait for its answer, or stop it here, then ask again.";
+  return {
+    blocks: [
+      { type: "section", text: { type: "mrkdwn", text } },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: STOP_ACTION,
+            style: "danger",
+            text: { type: "plain_text", text: "Stop" },
+            value: JSON.stringify({
+              c: thread.channelId,
+              e: running.eventId,
+              r: running.runId,
+              s: running.sessionId,
+              t: thread.threadTs,
+            } satisfies StopValue),
+            accessibility_label:
+              "Stop the answer @Datalayer is writing in this thread",
+          },
+        ],
+      },
+    ],
+    text,
+  };
+}
 
 export type ServiceOptions = Readonly<{
   clock?: Clock;
@@ -190,9 +240,11 @@ export class SlackAgentService {
       return; // the same event, its worker still answering (its heartbeat is recent)
     if (claim.outcome === "busy") {
       this.#refused(prompt, "busy");
-      await this.privately(prompt, prompt.userId, {
-        text: "@Datalayer is still answering in this thread. Wait for its answer, or press Stop on it when it shows one, then ask again.",
-      });
+      await this.privately(
+        prompt,
+        prompt.userId,
+        busyNotice(prompt, claim.turn),
+      );
       return;
     }
 
@@ -346,6 +398,15 @@ export class SlackAgentService {
         }
         await renderer.apply(event);
       }
+      // A stopped session's stream just ends (S-205): the Stop, pressed in
+      // any worker, left its mark on the turn, and the answer says who.
+      if (!renderer.presentation.ended) {
+        const ended = await this.store.getTurn(prompt);
+        if (ended?.eventId === prompt.eventId && ended.stoppedBy) {
+          renderer.stoppedBy = ended.stoppedBy;
+          await renderer.apply({ kind: "stop" });
+        }
+      }
       await renderer.finish();
       await this.store.putThread({
         ...binding,
@@ -399,15 +460,22 @@ export class SlackAgentService {
     if (!link) return "not-linked";
     const binding = await this.store.getThread(thread);
     if (!binding) return "not-running";
-    await this.agents.stopTurn(value.s, {
-      applicationId: binding.applicationId,
-      externalEventId: `stop:${value.e}`,
-      externalUserId: slackUserId,
-      principalId: link.principalId,
-      prompt: "",
-      provenance: thread,
-      sessionId: value.s,
-    });
+    // Marked first: the stream may end before Datalayer answers the stop.
+    await this.store.markStopped(thread, value.e, slackUserId);
+    try {
+      await this.agents.stopTurn(value.s, {
+        applicationId: binding.applicationId,
+        externalEventId: `stop:${value.e}`,
+        externalUserId: slackUserId,
+        principalId: link.principalId,
+        prompt: "",
+        provenance: thread,
+        sessionId: value.s,
+      });
+    } catch (error) {
+      await this.store.markStopped(thread, value.e, undefined);
+      throw error;
+    }
     return "stopped";
   }
 }

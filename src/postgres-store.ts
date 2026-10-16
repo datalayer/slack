@@ -83,6 +83,7 @@ type TurnRow = Readonly<{
   session_id: string | null;
   started_at: Date | string;
   state: "running" | "done";
+  stopped_by: string | null;
   team_id: string;
   thread_ts: string;
 }>;
@@ -109,6 +110,7 @@ function turnOfRow(row: TurnRow): ThreadTurn {
     runId: row.run_id ?? undefined,
     sessionId: row.session_id ?? undefined,
     startedAt: dateString(row.started_at),
+    stoppedBy: row.stopped_by ?? undefined,
     state: row.state,
     teamId: row.team_id,
     threadTs: row.thread_ts,
@@ -762,7 +764,8 @@ export class PostgresSlackStore implements SlackStore {
            VALUES ($1,$2,$3,$4,$5,$6,'running',$7)
            ON CONFLICT (app_id, enterprise_id, team_id, channel_id, thread_ts) DO UPDATE SET
              event_id = EXCLUDED.event_id, state = 'running', started_at = EXCLUDED.started_at,
-             heartbeat_at = NULL, run_id = NULL, message_ts = NULL, session_id = NULL
+             heartbeat_at = NULL, run_id = NULL, message_ts = NULL, session_id = NULL,
+             stopped_by = NULL
            RETURNING *`,
           [...threadValues(key), eventId, now.toISOString()],
         );
@@ -803,6 +806,18 @@ export class PostgresSlackStore implements SlackStore {
         patch.sessionId ?? null,
         patch.heartbeatAt ?? null,
       ],
+    );
+  }
+
+  async markStopped(
+    key: ThreadKey,
+    eventId: string,
+    slackUserId: string | undefined,
+  ): Promise<void> {
+    await this.database.query(
+      `UPDATE slack_thread_turns SET stopped_by = $7
+       WHERE ${THREAD_WHERE} AND event_id = $6`,
+      [...threadValues(key), eventId, slackUserId ?? null],
     );
   }
 
