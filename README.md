@@ -143,7 +143,7 @@ This is how `Datalayer Dev` (`A0CAMVC1E1E`) was made on 16 October 2026, and how
 2. **Create the app:** `make slack-app ENV=development`. It validates [`manifests/development.yaml`](manifests/development.yaml), creates the app, saves `DATALAYER_SLACK_DEVELOPMENT_APP_ID`, `_CLIENT_ID`, `_CLIENT_SECRET` and `_SIGNING_SECRET` to the rc, and prints the install link. Run again, it updates the app from the manifest.
 3. **(you) Install it** from the printed link (or the app's **Install App** page): **Allow**.
 4. **(you) The bot token:** the app's **OAuth & Permissions** page → **Bot User OAuth Token** (`xoxb-…`).
-5. **(you) The Socket Mode token:** **Basic Information → App-Level Tokens → Generate Token and Scopes**, name `socket`, scope `connections:write` → the `xapp-…` token.
+5. **(you) The Socket Mode token:** **Basic Information → App-Level Tokens → Generate Token and Scopes**, name `datalayer-local`, scope `connections:write` → the `xapp-…` token (Socket Mode itself is already on: the development manifest sets `socket_mode_enabled: true`).
 6. **(you) Store both without echo:**
    ```bash
    read -rsp "xoxb token: " B; echo; read -rsp "xapp token: " A; echo
@@ -168,7 +168,7 @@ There is one Slack app per environment, each made from its manifest: `Datalayer 
 ### A. With the script (`make slack-app`)
 
 1. **Get a configuration token, once.** Sign in at [api.slack.com/apps](https://api.slack.com/apps) with an account of the workspace the app will belong to. Under _Your App Configuration Tokens_, choose **Generate Token**, pick that workspace and copy both values it shows: the access token (`xoxe.xoxp-…`) and the refresh token (`xoxe-…`).
-2. **Put them in the prod1 rc**, with an editor, never with `echo` (the shell history keeps it):
+2. **Put them in the prod1 rc**, with an editor or with the `read -rsp` lines of [Development, step 1](#development-datalayer-dev-socket-mode-on-your-machine), never with `echo` (the shell history keeps it):
 
    ```bash
    # ~/.datalayer/datalayerrc-prod1
