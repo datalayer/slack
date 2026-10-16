@@ -33,6 +33,7 @@ import { SignedStateStore } from "./oauth-state.js";
 import type { ThreadKey } from "./domain.js";
 import { createRuntimeResources } from "./resources.js";
 import { SlackAgentService } from "./service.js";
+import { bothTracers, OtlpTracer } from "./tracing.js";
 
 async function main(): Promise<void> {
   const config = readConfig();
@@ -123,6 +124,18 @@ async function main(): Promise<void> {
     streaming: config.DATALAYER_SLACK_STREAMING,
     tokens,
   });
+  // Spans as log lines, and exported to the plane's collector when it is
+  // configured (S-101).
+  const logTracer = new LogTracer(new Logger(undefined, undefined, LOG_SALT));
+  const exported =
+    config.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT && config.DATALAYER_OTEL_API_KEY
+      ? new OtlpTracer(
+          config.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+          config.DATALAYER_OTEL_API_KEY,
+          { logger: new Logger(undefined, undefined, LOG_SALT) },
+        )
+      : undefined;
+  const tracer = exported ? bothTracers(logTracer, exported) : logTracer;
   const service = new SlackAgentService(
     store,
     agents,
@@ -131,6 +144,7 @@ async function main(): Promise<void> {
     hosts,
     {
       events: config.DATALAYER_SLACK_EVENTS,
+      tracer,
       quotas: {
         application: config.DATALAYER_SLACK_QUOTA_APPLICATION,
         organization: config.DATALAYER_SLACK_QUOTA_ORGANIZATION,
@@ -153,7 +167,7 @@ async function main(): Promise<void> {
     starters: new HostStarters(config.DATALAYER_API_URL, keyed, (key) =>
       hosts.hostKeyOf(key),
     ),
-    tracer: new LogTracer(new Logger(undefined, undefined, LOG_SALT)),
+    tracer,
     deliveries,
     hosts,
     tokens,
@@ -186,6 +200,7 @@ async function main(): Promise<void> {
     health?.close();
     if (role !== "worker") await app.stop();
     await resources.close();
+    await exported?.flush();
   };
   process.once("SIGINT", () => void close());
   process.once("SIGTERM", () => void close());

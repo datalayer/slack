@@ -84,6 +84,13 @@ const schema = z
       .transform((value) => value === "true"),
     /** quiet: one status line while a turn works; noisy: every tool it used, listed (S-308). */
     DATALAYER_SLACK_EVENTS: z.enum(["quiet", "noisy"]).default("quiet"),
+    /**
+     * Where spans are exported (S-101): the plane's OTEL collector, OTLP/HTTP
+     * JSON (`…/v1/traces`), with the platform's OTEL key as a Bearer. Without
+     * both, spans are log lines only.
+     */
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.url().optional(),
+    DATALAYER_OTEL_API_KEY: optionalSecret,
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,
     DATALAYER_DEV_SLACK_USER_ID: optionalSecret,
     DATALAYER_SLACK_APP_ID: optionalSecret,

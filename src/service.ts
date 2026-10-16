@@ -2,6 +2,7 @@ import {
   DEFAULT_QUOTAS,
   HostRefusedError,
   Logger,
+  noTracer,
   quotaEntries,
   quotaWords,
   resetOf,
@@ -10,6 +11,7 @@ import {
   type AgentClient,
   type Clock,
   type QuotaLimits,
+  type Tracer,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 import { StoreLinks, type AccountLinks } from "./host-installations.js";
@@ -19,7 +21,7 @@ import type {
   ThreadKey,
   TurnRequest,
 } from "./domain.js";
-import { LOG_SALT } from "./observability.js";
+import { LOG_SALT, traceAttributes } from "./observability.js";
 import { openValueOf, STOP_ACTION, stripAppMention } from "./presentation.js";
 import { retryingSlackPort, SlackRateLimiter } from "./rate-limit.js";
 import { TurnRenderer } from "./render.js";
@@ -116,6 +118,8 @@ export type ServiceOptions = Readonly<{
   events?: "quiet" | "noisy";
   /** How often a running turn's heartbeat is written (`TURN_HEARTBEAT_MS`). */
   heartbeatMs?: number;
+  /** A span per turn (S-101): its session, and its run once the stream names it. */
+  tracer?: Tracer;
 }>;
 
 function slackErrorOf(error: unknown): string | undefined {
@@ -364,70 +368,83 @@ export class SlackAgentService {
     }, this.options.heartbeatMs ?? TURN_HEARTBEAT_MS);
     heartbeat.unref();
 
-    try {
-      const messageTs = await renderer.begin();
-      await this.store.updateTurn(prompt, prompt.eventId, {
-        messageTs,
-        sessionId: turn.sessionId,
-      });
-      const binding = {
-        ...request.provenance,
-        applicationId: resolved.applicationId,
-        lastEventId: prompt.eventId,
-        lastRunId: resolved.binding?.lastRunId,
-        openedByPrincipalId:
-          resolved.binding?.openedByPrincipalId ?? resolved.principalId,
-        // Until the turn finishes, its status message waits for an answer: a
-        // turn paused on an approval is finished by `turn.completed`.
-        pendingMessageTs: messageTs,
-        sessionId: turn.sessionId,
-        updatedAt: now.toISOString(),
-        visibility: resolved.visibility,
-      };
-      await this.store.putThread(binding);
-      await this.store.clearNextApplication(prompt);
-
-      for await (const event of turn.updates) {
-        if (turn.run.id && renderer.runId !== turn.run.id) {
-          renderer.runId = turn.run.id;
-          renderer.stopValue = stopValue(turn.run.id);
+    // The turn's span (S-101): its conversation's pseudonyms, its session,
+    // and its run once the stream names it (read when the span ends).
+    const spanned: Record<string, string> = {
+      ...traceAttributes(prompt),
+      "datalayer.session": turn.sessionId,
+    };
+    await (this.options.tracer ?? noTracer).span(
+      "slack.turn",
+      spanned,
+      async () => {
+        try {
+          const messageTs = await renderer.begin();
           await this.store.updateTurn(prompt, prompt.eventId, {
-            runId: turn.run.id,
+            messageTs,
+            sessionId: turn.sessionId,
           });
+          const binding = {
+            ...request.provenance,
+            applicationId: resolved.applicationId,
+            lastEventId: prompt.eventId,
+            lastRunId: resolved.binding?.lastRunId,
+            openedByPrincipalId:
+              resolved.binding?.openedByPrincipalId ?? resolved.principalId,
+            // Until the turn finishes, its status message waits for an answer: a
+            // turn paused on an approval is finished by `turn.completed`.
+            pendingMessageTs: messageTs,
+            sessionId: turn.sessionId,
+            updatedAt: now.toISOString(),
+            visibility: resolved.visibility,
+          };
+          await this.store.putThread(binding);
+          await this.store.clearNextApplication(prompt);
+
+          for await (const event of turn.updates) {
+            if (turn.run.id && renderer.runId !== turn.run.id) {
+              renderer.runId = turn.run.id;
+              spanned["datalayer.turn"] = turn.run.id;
+              renderer.stopValue = stopValue(turn.run.id);
+              await this.store.updateTurn(prompt, prompt.eventId, {
+                runId: turn.run.id,
+              });
+            }
+            await renderer.apply(event);
+          }
+          // A stopped session's stream just ends (S-205): the Stop, pressed in
+          // any worker, left its mark on the turn, and the answer says who.
+          if (!renderer.presentation.ended) {
+            const ended = await this.store.getTurn(prompt);
+            if (ended?.eventId === prompt.eventId && ended.stoppedBy) {
+              renderer.stoppedBy = ended.stoppedBy;
+              await renderer.apply({ kind: "stop" });
+            }
+          }
+          await renderer.finish();
+          await this.store.putThread({
+            ...binding,
+            lastRunId: turn.run.id ?? binding.lastRunId,
+            pendingMessageTs: renderer.presentation.ended
+              ? undefined
+              : binding.pendingMessageTs,
+            updatedAt: new Date(this.#clock.now()).toISOString(),
+          });
+        } catch (error) {
+          this.logger.warn("turn.interrupted", {
+            error_name: error instanceof Error ? error.name : "unknown",
+          });
+          await renderer.apply({
+            kind: "error",
+            message: "The connection to Datalayer was interrupted.",
+          });
+          await renderer.finish().catch(() => undefined);
+        } finally {
+          clearInterval(heartbeat);
+          await this.store.endTurn(prompt, prompt.eventId);
         }
-        await renderer.apply(event);
-      }
-      // A stopped session's stream just ends (S-205): the Stop, pressed in
-      // any worker, left its mark on the turn, and the answer says who.
-      if (!renderer.presentation.ended) {
-        const ended = await this.store.getTurn(prompt);
-        if (ended?.eventId === prompt.eventId && ended.stoppedBy) {
-          renderer.stoppedBy = ended.stoppedBy;
-          await renderer.apply({ kind: "stop" });
-        }
-      }
-      await renderer.finish();
-      await this.store.putThread({
-        ...binding,
-        lastRunId: turn.run.id ?? binding.lastRunId,
-        pendingMessageTs: renderer.presentation.ended
-          ? undefined
-          : binding.pendingMessageTs,
-        updatedAt: new Date(this.#clock.now()).toISOString(),
-      });
-    } catch (error) {
-      this.logger.warn("turn.interrupted", {
-        error_name: error instanceof Error ? error.name : "unknown",
-      });
-      await renderer.apply({
-        kind: "error",
-        message: "The connection to Datalayer was interrupted.",
-      });
-      await renderer.finish().catch(() => undefined);
-    } finally {
-      clearInterval(heartbeat);
-      await this.store.endTurn(prompt, prompt.eventId);
-    }
+      },
+    );
   }
 
   /**
