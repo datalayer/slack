@@ -1,7 +1,10 @@
 import type { KnownBlock, ModalView } from "@slack/types";
 
-import { renderApproval } from "./approval-renderers.js";
-import { slackMayDecide, type ApprovalPresentation } from "./host-contracts.js";
+import {
+  hostMayDecide,
+  renderApproval,
+  type ApprovalPresentation,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 /** Slack's limits a card is measured against: a value is shown whole or not offered. */
 export const SLACK_BLOCKS_PER_MESSAGE = 50;
@@ -91,7 +94,7 @@ const ACTION_WORDS: Record<ApprovalPresentation["action_class"], string> = {
  * An approval as a Block Kit card (plans/SLACK.md §3.4, S-302): who asks,
  * what, and every material value whole — a value longer than a block is
  * continued in the next, never cut. *Approve* and *Decline* are offered only
- * when the server says a host may decide it (`slackMayDecide`) and every
+ * when the server says a host may decide it (`hostMayDecide`) and every
  * value fits a Slack message; otherwise the card says why and offers only
  * *Review in Datalayer*.
  */
@@ -119,7 +122,7 @@ export function approvalCard(
       valueBlocks.push({ type: "section", text: plain(chunk) });
   }
   const fits = valueBlocks.length + CARD_OWN_BLOCKS <= SLACK_BLOCKS_PER_MESSAGE;
-  const offersDecision = fits && slackMayDecide(presentation) && typed.complete;
+  const offersDecision = fits && hostMayDecide(presentation) && typed.complete;
   const why: string[] = [...typed.reasons.map(mrkdwnEscape)];
   if (!fits)
     why.push(
@@ -129,7 +132,7 @@ export function approvalCard(
     why.push(
       `Withheld from Slack: ${presentation.secret_fields.map(mrkdwnEscape).join(", ")}.`,
     );
-  if (!slackMayDecide(presentation))
+  if (!hostMayDecide(presentation))
     why.push(
       ...(presentation.reasons.length > 0
         ? presentation.reasons.map(mrkdwnEscape)

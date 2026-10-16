@@ -17,7 +17,7 @@ The repository currently provides the executable Phase 0/early Phase 2 foundatio
 - `app_mention` and `message.im` normalization into one thread prompt;
 - per-installation user links, default applications, thread/session bindings and event idempotency;
 - a fast queue boundary between Slack acknowledgement and agent work;
-- a portable Datalayer host client on the generic host contracts ai-agents and the runtime's session API answer every host (no Slack-specific endpoint): the host credential exchange, idempotent turns named by the Slack event id, the AG-UI stream reduced to Slack updates, the thread mapped to its session for deliveries, signed delivery verification and the approval presentation (`src/host-contracts.ts`, shared fixture `test/contracts/contracts.json`);
+- a portable Datalayer host client on the generic host contracts ai-agents and the runtime's session API answer every host (no Slack-specific endpoint): the host credential exchange, idempotent turns named by the Slack event id, the AG-UI stream reduced to Slack updates, the thread mapped to its session for deliveries, signed delivery verification and the approval presentation. Since DISCORD DC-004 this is the shared host kit in agent-runtimes' `src/portable/hosts`, imported as `@datalayer/agent-runtimes/lib/portable/hosts` (fixture `lib/portable/hosts/contracts.json`); Slack keeps only its `HostShape` (`src/agent-client.ts`: session uid, place, delivery target);
 - progressively updated threaded answers and private setup failures;
 - least-privilege manifests for development, staging and production;
 - production refusal when only the in-memory development store is configured;
@@ -40,8 +40,8 @@ Added on 16 October 2026 (plans/SLACK.md round 1):
   - After a crash, a redelivery resumes the same message, and Datalayer replays the turn rather than running it again.
   - _Use another application_ and _Start over_ archive the thread's binding and open a new session. Only the person who opened it can use them.
   - An edited direct message offers _Send edited text as a new turn_. A deleted one is told that the record stays.
-- **rendering** (`src/semantic.ts`, `src/ag-ui.ts`, `src/presentation.ts`, `src/render.ts`, `src/rate-limit.ts`):
-  - The AG-UI stream is reduced to versioned semantic events (`test/contracts/semantic-events.json`).
+- **rendering** (`src/presentation.ts`, `src/render.ts`, `src/rate-limit.ts`):
+  - The AG-UI stream is reduced to versioned semantic events by the shared reducer (agent-runtimes `src/portable/semanticOfAgUi.ts`, contract `semantic-events.json`, tested there and by the runtime that emits the events); `TurnPresentation` is the shared `TurnState` rendered in Block Kit.
   - Answers stream with `chat.startStream` when the port offers it (`DATALAYER_SLACK_STREAMING`). If Slack refuses to stream there, the turn falls back to one placeholder, updated at most every 1.5 s. Each append carries at most 12,000 characters and a stream at most 38,000, then says once that the rest is in Datalayer. `chat.stopStream` appends only what the stream did not carry (sources, files, the question, the status and the actions), never the answer again; the streamed words are the message's text.
   - A turn's calls are spaced per method and channel. Every Slack call, cards and private words included, waits Slack's `Retry-After` on a 429: the Web client rejects rate-limited calls (`rejectRateLimitedCalls`) instead of pausing its own queue.
   - Tables are shown as blocks, previewed when large. Citations are safe HTTPS links.
@@ -50,8 +50,8 @@ Added on 16 October 2026 (plans/SLACK.md round 1):
 - **operations**:
   - `/healthz` and `/readyz` (the store and the queue only);
   - redacted JSON logs with pseudonymous ids, and identity audit events (`src/observability.ts`);
-  - a production-graph import gate (`scripts/forbidden-graph.mjs`);
-  - a `Dockerfile` (node 20 slim, non-root, `npm ci --omit=dev`) and `scripts/migrate.mjs`;
+  - one esbuild bundle (`scripts/bundle.ts`: `dist/index.js`, `dist/migrate.js`, `dist/dead-letters.js`) gated on its module graph (`npm run check:imports`) and, in CI, on the installed graph of its externals (`npm run check:installed`);
+  - a two-stage `Dockerfile` (node 20 slim, non-root): the build stage fetches the pinned agent-runtimes release's `lib/portable` only (`config.agentRuntimesVersion`, `scripts/fetch-agent-runtimes.mjs`) and bundles; the runtime stage installs the externals only (`--omit=dev --omit=peer`); `scripts/migrate.ts` applies the shared host tables, then `migrations/`;
   - CI (`.github/workflows/ci.yml`).
 - **documents**: `docs/inventory.md` (S-001), `docs/adr/` (S-002) and `docs/threat-model.md` (S-003, draft).
 
@@ -430,7 +430,7 @@ npm run migrate
 
 The PostgreSQL queue uses `FOR UPDATE SKIP LOCKED`, so multiple workers may process different Slack jobs safely. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes (a job being worked renews its lease every minute).
 
-Dead jobs are handled with `DATALAYER_OPERATOR=<your name> node lib/dead-letters-cli.js list | replay <id> | payload <id> <reason>`. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept in `slack_job_replays` with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept in `slack_payload_access`, and its credentials are redacted. The operator must be named: the container's user is never taken for one. Not built yet: a separate database role for payload reads, and an operator identity checked against Datalayer.
+Dead jobs are handled with `DATALAYER_OPERATOR=<your name> node dist/dead-letters.js list | replay <id> | payload <id> <reason>`. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept in `slack_job_replays` with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept in `slack_payload_access`, and its credentials are redacted. The operator must be named: the container's user is never taken for one. Not built yet: a separate database role for payload reads, and an operator identity checked against Datalayer.
 
 ## Checks
 
@@ -438,7 +438,7 @@ Dead jobs are handled with `DATALAYER_OPERATOR=<your name> node lib/dead-letters
 npm run check
 ```
 
-This runs formatting, lint, type checking, forbidden-import and manifest checks, unit tests, and the production TypeScript build.
+This runs formatting, lint, type checking, the bundle-graph gate and manifest checks, unit tests, and the esbuild bundle. In the monorepo, agent-runtimes' `lib/portable` comes from its `watch:lib`; in a standalone clone, run `npm run fetch:agent-runtimes` after `npm install` first.
 
 Render the three manifests after changing the template:
 

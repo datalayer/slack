@@ -1,15 +1,17 @@
-import type { AgentClient } from "../../src/agent-client.js";
 import type {
   IncomingPrompt,
   SlackInstallationKey,
   ThreadKey,
   TurnRequest,
-  TurnStream,
 } from "../../src/domain.js";
 import type { AccountLinks } from "../../src/host-installations.js";
-import { Logger } from "../../src/observability.js";
-import type { Clock } from "../../src/rate-limit.js";
-import type { SemanticEvent } from "../../src/semantic.js";
+import {
+  Logger,
+  type AgentClient,
+  type Clock,
+  type SemanticEvent,
+  type TurnStream,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type {
   SlackMessage,
   SlackPort,
@@ -150,7 +152,7 @@ export async function* streamOf(
 }
 
 /** An agent client that answers each turn with its scripted events and keeps every request. */
-export class FakeAgents implements AgentClient {
+export class FakeAgents implements AgentClient<ThreadKey> {
   readonly requests: TurnRequest[] = [];
   readonly stops: Array<{ sessionId: string; request: TurnRequest }> = [];
   script: (request: TurnRequest) => Promise<TurnStream> | TurnStream;

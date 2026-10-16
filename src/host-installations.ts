@@ -1,10 +1,14 @@
 import {
+  LINK_PAGE_PATH,
+  type BoundHost,
+  type DatalayerHostClient,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
+import {
   externalIdOf,
   type SlackInstallation,
   type SlackInstallationKey,
 } from "./domain.js";
-import type { BoundHost, DatalayerHostClient } from "./host-client.js";
-import { LINK_PAGE_PATH } from "./host-contracts.js";
 import type { SlackStore } from "./store.js";
 
 /** Whether a Slack user is linked, and how one connects. */

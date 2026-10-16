@@ -1,13 +1,12 @@
+import {
+  answerParts,
+  TurnState,
+  type AnswerPart,
+  type AskQuestion,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { KnownBlock } from "@slack/types";
 
 import type { SlackMessage } from "./slack-port.js";
-
-import {
-  answerParts,
-  type AnswerPart,
-  type AskQuestion,
-  type SemanticEvent,
-} from "./semantic.js";
 
 /** Slack's limits on one message (Block Kit reference). */
 export const SLACK_LIMITS = {
@@ -173,84 +172,11 @@ export function tableBlocks(
   return blocks;
 }
 
-/** A turn's state as Slack shows it, from its semantic events. */
-export class TurnPresentation {
-  #answer = "";
-  #asking?: AskQuestion;
-  #approvals: string[] = [];
-  #ended?: "completion" | "stop" | "error";
-  #error?: string;
-  #files: Array<{ mediaType?: string; name: string; url: string }> = [];
-  #status = "Working…";
-  #tools = new Map<string, { name: string; status: string }>();
-
-  /** Whether the turn finished while it streamed: else a `turn.completed` delivery finishes it. */
-  get complete(): boolean {
-    return this.#ended === "completion";
-  }
-
-  /** Whether the turn ended (answered, stopped, failed) or waits on a question. */
-  get ended(): boolean {
-    return this.#ended !== undefined || this.#asking !== undefined;
-  }
-
-  get answer(): string {
-    return this.#answer;
-  }
-
-  apply(event: SemanticEvent): void {
-    switch (event.kind) {
-      case "text":
-        this.#answer += event.text;
-        break;
-      case "progress":
-        this.#status = event.label;
-        break;
-      case "tool":
-        this.#tools.set(event.id || event.name, {
-          name: event.name,
-          status: event.status,
-        });
-        this.#status = `${event.status === "running" ? "Using" : event.status === "failed" ? "Failed:" : "Used"} ${event.name}`;
-        break;
-      case "approval":
-        this.#approvals.push(event.toolName);
-        this.#status = `Waiting for approval to use ${event.toolName}`;
-        break;
-      case "file":
-        this.#files.push({
-          mediaType: event.mediaType,
-          name: event.name,
-          url: event.url,
-        });
-        break;
-      case "table":
-        this.#answer += `\n\n| ${event.columns.join(" | ")} |\n|${event.columns.map(() => "---").join("|")}|\n${event.rows.map((row) => `| ${row.join(" | ")} |`).join("\n")}\n`;
-        break;
-      case "citation":
-        this.#answer += `\n[${event.title}](${event.url})`;
-        break;
-      case "ask":
-        this.#asking = event.question;
-        this.#status = "Waiting for your answer";
-        break;
-      case "completion":
-        if (event.text && !this.#answer) this.#answer = event.text;
-        this.#ended = "completion";
-        this.#status = "Complete";
-        break;
-      case "stop":
-        this.#ended = "stop";
-        this.#status = "Stopped";
-        break;
-      case "error":
-        this.#ended = "error";
-        this.#error = event.message;
-        this.#status = "Could not finish";
-        break;
-    }
-  }
-
+/**
+ * A turn's state as Slack shows it: the shared host kit's `TurnState`
+ * (answer, tools, status, question, how it ended), rendered in Block Kit.
+ */
+export class TurnPresentation extends TurnState {
   /**
    * The message: blocks within Slack's limits and a plain-text fallback for
    * notifications and screen readers. While running, a Stop button names the
@@ -275,8 +201,8 @@ export class TurnPresentation {
     } = {},
   ): SlackMessage {
     const blocks: KnownBlock[] = [];
-    const running = this.#ended === undefined && this.#asking === undefined;
-    const parts = answerParts(this.#answer);
+    const running = this.running;
+    const parts = answerParts(this.answer);
     const citations = parts.filter(
       (part): part is Extract<AnswerPart, { kind: "citation" }> =>
         part.kind === "citation",
@@ -286,7 +212,7 @@ export class TurnPresentation {
         blocks.push(...sectionsOf(answerMrkdwn(part.text)));
       if (part.kind === "table") blocks.push(...tableBlocks(part, openUrl));
     }
-    for (const file of this.#files)
+    for (const file of this.files)
       blocks.push({
         type: "section",
         text: {
@@ -307,14 +233,14 @@ export class TurnPresentation {
           },
         ],
       });
-    if (options.events === "noisy" && this.#tools.size > 0)
+    if (options.events === "noisy" && this.tools.size > 0)
       blocks.push({
         type: "context",
         elements: [
           {
             type: "mrkdwn",
             text: bounded(
-              [...this.#tools.values()]
+              [...this.tools.values()]
                 .map(
                   (tool) =>
                     `${tool.status === "running" ? "⏳" : tool.status === "failed" ? "✗" : "✓"} ${escapeSlack(tool.name)}`,
@@ -325,16 +251,16 @@ export class TurnPresentation {
           },
         ],
       });
-    if (this.#asking)
+    if (this.asking)
       blocks.push(
-        ...askBlocks(this.#asking, openUrl, options.askValue, options.direct),
+        ...askBlocks(this.asking, openUrl, options.askValue, options.direct),
       );
     const status =
-      this.#ended === "error"
-        ? `Could not finish: ${this.#error ?? "the run failed"}`
-        : this.#ended === "completion"
+      this.ending === "error"
+        ? `Could not finish: ${this.error ?? "the run failed"}`
+        : this.ending === "completion"
           ? undefined
-          : this.#status;
+          : this.status;
     if (status)
       blocks.push({
         type: "context",
@@ -418,11 +344,11 @@ export class TurnPresentation {
   /** The plain words of the message: what a notification and a screen reader say. */
   fallback(): string {
     const words =
-      this.#ended === "error"
-        ? `Could not finish: ${this.#error ?? "the run failed"}`
-        : this.#asking
-          ? `${this.#answer ? `${this.#answer}\n\n` : ""}${this.#asking.prompt}`
-          : this.#answer || this.#status;
+      this.ending === "error"
+        ? `Could not finish: ${this.error ?? "the run failed"}`
+        : this.asking
+          ? `${this.answer ? `${this.answer}\n\n` : ""}${this.asking.prompt}`
+          : this.answer || this.status;
     // Escaped like the blocks: the notification text never pings
     // <!channel> or anyone the answer happens to spell out.
     return bounded(

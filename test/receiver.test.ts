@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registerSlackListeners, SLACK_EVENTS_PATH } from "../src/bolt.js";
 import { guardRequestTimestamps } from "../src/health.js";
 import { readConfig } from "../src/config.js";
-import { MemoryWorkQueue } from "../src/queue.js";
+import { MemoryWorkQueue } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { SlackAgentService } from "../src/service.js";
 import type { SlackJob } from "../src/worker.js";
 import {

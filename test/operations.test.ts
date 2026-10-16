@@ -1,23 +1,21 @@
 import { readFileSync } from "node:fs";
 
+import {
+  healthServer,
+  Logger,
+  LogTracer,
+  pseudonym,
+  readiness,
+  redact,
+  REDACTED,
+  timestampWithinWindow,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { describe, expect, it } from "vitest";
 
 import { createBoltApp } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
-import {
-  healthRoutes,
-  healthServer,
-  readiness,
-  timestampWithinWindow,
-} from "../src/health.js";
-import {
-  Logger,
-  LogTracer,
-  pseudonym,
-  redact,
-  REDACTED,
-  traceAttributes,
-} from "../src/observability.js";
+import { healthRoutes } from "../src/health.js";
+import { LOG_SALT, traceAttributes } from "../src/observability.js";
 
 describe("health and readiness (S-101)", () => {
   it("is ready only when the store and the queue answer, never asking Slack or Datalayer", async () => {
@@ -96,7 +94,7 @@ describe("redacted logs and pseudonymous traces (S-101, §9)", () => {
 
   it("never writes tokens, codes, keys or words", () => {
     const lines: string[] = [];
-    const logger = new Logger((line) => lines.push(line));
+    const logger = new Logger((line) => lines.push(line), undefined, LOG_SALT);
     logger.info("turn.started", {
       ...secrets,
       nested: {
@@ -108,7 +106,7 @@ describe("redacted logs and pseudonymous traces (S-101, §9)", () => {
     });
     logger.audit("identity.linked", {
       installation: "A1:-:T1",
-      slackUser: "U123",
+      user: "U123",
       reason: "person",
     });
     const output = lines.join("\n");
@@ -122,7 +120,7 @@ describe("redacted logs and pseudonymous traces (S-101, §9)", () => {
     ])
       expect(output).not.toContain(value);
     expect(output).toContain(REDACTED);
-    expect(output).toContain(pseudonym("U123"));
+    expect(output).toContain(pseudonym("U123", LOG_SALT));
   });
 
   it("redacts nested arrays and errors", () => {
@@ -155,7 +153,9 @@ describe("redacted logs and pseudonymous traces (S-101, §9)", () => {
       outcome: "ok",
     });
     expect(lines[0]).not.toContain("C1");
-    expect(span["datalayer.slack.installation"]).toBe(pseudonym("A1:-:T1"));
+    expect(span["datalayer.slack.installation"]).toBe(
+      pseudonym("A1:-:T1", LOG_SALT),
+    );
   });
 });
 

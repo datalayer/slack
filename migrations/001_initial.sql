@@ -1,5 +1,10 @@
 BEGIN;
 
+-- The shared tables (slack_event_claims, slack_jobs, slack_usage,
+-- slack_payload_access, slack_job_replays) are the host kit's:
+-- applyHostSchema(db, "slack") from @datalayer/agent-runtimes/lib/portable/hosts
+-- runs before these files (scripts/migrate.ts; plans/DISCORD.md DC-004).
+
 CREATE TABLE IF NOT EXISTS slack_installations (
   app_id text NOT NULL,
   enterprise_id text NOT NULL DEFAULT '',
@@ -61,23 +66,5 @@ CREATE TABLE IF NOT EXISTS slack_thread_bindings (
   FOREIGN KEY (app_id, enterprise_id, team_id)
     REFERENCES slack_installations (app_id, enterprise_id, team_id) ON DELETE CASCADE
 );
-
-CREATE TABLE IF NOT EXISTS slack_event_claims (
-  event_id text PRIMARY KEY,
-  claimed_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS slack_event_claims_claimed_at ON slack_event_claims (claimed_at);
-
-CREATE TABLE IF NOT EXISTS slack_jobs (
-  id bigserial PRIMARY KEY,
-  payload jsonb NOT NULL,
-  state text NOT NULL DEFAULT 'ready' CHECK (state IN ('ready', 'processing', 'dead')),
-  attempts integer NOT NULL DEFAULT 0,
-  available_at timestamptz NOT NULL DEFAULT now(),
-  locked_at timestamptz,
-  last_error text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS slack_jobs_ready ON slack_jobs (state, available_at, id);
 
 COMMIT;

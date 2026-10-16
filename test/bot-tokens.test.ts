@@ -12,7 +12,7 @@ import {
   slackTokenRefresh,
   type RefreshBotToken,
 } from "../src/bot-tokens.js";
-import { SecretCipher } from "../src/crypto.js";
+import { SecretCipher } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { SlackInstallation } from "../src/domain.js";
 import type { HostInstallations } from "../src/host-installations.js";
 import { PostgresInstallationStore } from "../src/oauth-store.js";

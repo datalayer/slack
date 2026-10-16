@@ -6,18 +6,19 @@ import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 import { uninstallSlackWorkspace } from "../src/bolt.js";
-import { SecretCipher } from "../src/crypto.js";
+import {
+  DatalayerHostClient,
+  SecretCipher,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { SlackInstallation } from "../src/domain.js";
-import { DatalayerHostClient } from "../src/host-client.js";
 import { HostInstallations } from "../src/host-installations.js";
 import { PostgresInstallationStore } from "../src/oauth-store.js";
 import { PostgresSlackStore } from "../src/postgres-store.js";
 import { MemorySlackStore } from "../src/store.js";
+import { CONTRACTS_PATH } from "./support/contracts.js";
 
 /** The fixture ai-agents tests its half against: the routes and request shapes. */
-const contracts = JSON.parse(
-  readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
-) as {
+const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
   bind: { request: Record<string, string>; response_keys: string[] };
   headers: Record<string, string>;
   link_code: { request: Record<string, string>; response_keys: string[] };

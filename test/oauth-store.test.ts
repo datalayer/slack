@@ -4,7 +4,7 @@ import type { Installation } from "@slack/bolt";
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { SecretCipher } from "../src/crypto.js";
+import { SecretCipher } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { PostgresInstallationStore } from "../src/oauth-store.js";
 import { MemorySlackStore } from "../src/store.js";
 

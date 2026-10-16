@@ -1,6 +1,12 @@
+import {
+  PostgresQuotaStore,
+  type EncryptedSecret,
+  type QuotaEntry,
+  type QuotaTake,
+  type SecretCipher,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { Pool } from "pg";
 
-import type { EncryptedSecret, SecretCipher } from "./crypto.js";
 import {
   type AppAllowance,
   type IncomingPrompt,
@@ -16,7 +22,6 @@ import {
   type ThreadBinding,
   type ThreadKey,
 } from "./domain.js";
-import type { QuotaEntry } from "./quotas.js";
 import { turnIsStale, type RotatedBotToken, type SlackStore } from "./store.js";
 
 const enterprise = (value?: string): string => value ?? "";
@@ -152,10 +157,14 @@ const deliverySecretData = (key: SlackInstallationKey): string =>
   `delivery-secret:${installationKey(key)}`;
 
 export class PostgresSlackStore implements SlackStore {
+  readonly #quotas: PostgresQuotaStore;
+
   constructor(
     readonly database: Pool,
     readonly cipher: SecretCipher,
-  ) {}
+  ) {
+    this.#quotas = new PostgresQuotaStore(database, { tablePrefix: "slack" });
+  }
 
   async claimEvent(eventId: string): Promise<boolean> {
     const result = await this.database.query(
@@ -902,53 +911,12 @@ export class PostgresSlackStore implements SlackStore {
 
   async takeQuota(
     entries: readonly QuotaEntry[],
-    window: string,
-  ): Promise<{ ok: true } | { ok: false; entry: QuotaEntry }> {
-    const client = await this.database.connect();
-    try {
-      await client.query("BEGIN");
-      // Rows locked in a stable order: two turns never deadlock on them.
-      const sorted = [...entries].sort((a, b) => a.key.localeCompare(b.key));
-      for (const entry of sorted)
-        await client.query(
-          `INSERT INTO slack_usage (usage_key, usage_window, used) VALUES ($1, $2, 0)
-           ON CONFLICT (usage_key, usage_window) DO NOTHING`,
-          [entry.key, window],
-        );
-      const used = await client.query<{ usage_key: string; used: number }>(
-        `SELECT usage_key, used FROM slack_usage
-         WHERE usage_window = $1 AND usage_key = ANY($2::text[])
-         ORDER BY usage_key FOR UPDATE`,
-        [window, sorted.map((entry) => entry.key)],
-      );
-      const counts = new Map(used.rows.map((row) => [row.usage_key, row.used]));
-      const spent = entries.find(
-        (entry) => (counts.get(entry.key) ?? 0) >= entry.limit,
-      );
-      if (spent) {
-        await client.query("ROLLBACK");
-        return { entry: spent, ok: false };
-      }
-      await client.query(
-        `UPDATE slack_usage SET used = used + 1
-         WHERE usage_window = $1 AND usage_key = ANY($2::text[])`,
-        [window, sorted.map((entry) => entry.key)],
-      );
-      await client.query("COMMIT");
-      return { ok: true };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    period: string,
+  ): Promise<QuotaTake> {
+    return this.#quotas.takeQuota(entries, period);
   }
 
-  async quotaUsed(key: string, window: string): Promise<number> {
-    const result = await this.database.query<{ used: number }>(
-      "SELECT used FROM slack_usage WHERE usage_key = $1 AND usage_window = $2",
-      [key, window],
-    );
-    return result.rows[0]?.used ?? 0;
+  async quotaUsed(key: string, period: string): Promise<number> {
+    return this.#quotas.quotaUsed(key, period);
   }
 }

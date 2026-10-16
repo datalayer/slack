@@ -3,16 +3,19 @@ import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { SecretCipher } from "../src/crypto.js";
+import {
+  MemoryWorkQueue,
+  PostgresWorkQueue,
+  SecretCipher,
+  type WorkQueue,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type {
   IncomingPrompt,
   ThreadBinding,
   ThreadKey,
 } from "../src/domain.js";
 import { PostgresSlackStore } from "../src/postgres-store.js";
-import { PostgresWorkQueue } from "../src/postgres-queue.js";
 import { MemorySlackStore, type SlackStore } from "../src/store.js";
-import { MemoryWorkQueue, type WorkQueue } from "../src/queue.js";
 import { testDatabase } from "./support/postgres.js";
 
 /**
@@ -389,7 +392,12 @@ if (DATABASE_URL) {
   describe("the Postgres work queue's lease (S-207)", () => {
     it("renews a job's lease while it is worked, so a long turn is not reclaimed", async () => {
       await database.query("TRUNCATE slack_jobs");
-      const queue = new PostgresWorkQueue<{ n: number }>(database, 10, 50);
+      const queue = new PostgresWorkQueue<{ n: number }>(
+        database,
+        "slack",
+        10,
+        50,
+      );
       await queue.enqueue({ n: 1 });
       const leases: number[] = [];
       let finish!: () => void;
@@ -418,7 +426,7 @@ if (DATABASE_URL) {
       "TRUNCATE slack_installations, slack_event_claims, slack_jobs CASCADE",
     );
     return {
-      queue: new PostgresWorkQueue<unknown>(database),
+      queue: new PostgresWorkQueue<unknown>(database, "slack"),
       store: new PostgresSlackStore(database, cipher),
     };
   });

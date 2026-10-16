@@ -1,11 +1,21 @@
 import {
+  DatalayerHostClient,
+  DELIVERY_ROUTE,
+  DeliveryPoller,
+  deliveryRoute,
   DevelopmentCredentials,
+  healthServer,
   HostKeyCredentials,
   HostStarters,
   HttpAgentClient,
   InstallationCredentials,
+  Logger,
+  LogTracer,
+  type DeliveryJob,
   type HostKeyLookup,
-} from "./agent-client.js";
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
+import { slackShape } from "./agent-client.js";
 import { BotTokens, slackTokenRefresh } from "./bot-tokens.js";
 import {
   BoltSlackPort,
@@ -15,18 +25,12 @@ import {
   seedDevelopmentInstallation,
 } from "./bolt.js";
 import { deliveryUrlOf, readConfig } from "./config.js";
-import {
-  DELIVERY_ROUTE,
-  DeliveryHandler,
-  DeliveryPoller,
-  deliveryRoute,
-  type DeliveryJob,
-} from "./deliveries.js";
-import { healthRoutes, healthServer } from "./health.js";
-import { Logger, LogTracer } from "./observability.js";
-import { DatalayerHostClient } from "./host-client.js";
+import { DeliveryHandler, deliverySinkOf } from "./deliveries.js";
+import { healthRoutes } from "./health.js";
+import { LOG_SALT } from "./observability.js";
 import { HostInstallations } from "./host-installations.js";
 import { SignedStateStore } from "./oauth-state.js";
+import type { ThreadKey } from "./domain.js";
 import { createRuntimeResources } from "./resources.js";
 import { SlackAgentService } from "./service.js";
 
@@ -48,9 +52,13 @@ async function main(): Promise<void> {
   await seedDevelopmentInstallation(config, store);
 
   // Each workspace's own key; the single configured key only in development.
-  const hostKeyFor: HostKeyLookup = async (request) =>
+  const hostKeyFor: HostKeyLookup<ThreadKey> = async (request) =>
     hosts.hostKeyOf(request.provenance);
-  const keyed = new HostKeyCredentials(config.DATALAYER_API_URL, hostKeyFor);
+  const keyed = new HostKeyCredentials(
+    config.DATALAYER_API_URL,
+    hostKeyFor,
+    slackShape,
+  );
   const credentials = new InstallationCredentials(
     keyed,
     config.NODE_ENV === "development" && config.DATALAYER_DEV_HOST_TOKEN
@@ -63,6 +71,7 @@ async function main(): Promise<void> {
   const agents = new HttpAgentClient(
     config.DATALAYER_API_URL,
     credentials,
+    slackShape,
     fetch,
     hostKeyFor,
   );
@@ -82,7 +91,10 @@ async function main(): Promise<void> {
       }),
       {
         handler: (request, response) =>
-          void deliveryRoute(store, enqueueDelivery)(request, response),
+          void deliveryRoute(deliverySinkOf(store), enqueueDelivery)(
+            request,
+            response,
+          ),
         method: ["POST"],
         path: DELIVERY_ROUTE,
       },
@@ -127,7 +139,7 @@ async function main(): Promise<void> {
         application: config.DATALAYER_SLACK_QUOTA_APPLICATION,
         organization: config.DATALAYER_SLACK_QUOTA_ORGANIZATION,
         user: config.DATALAYER_SLACK_QUOTA_USER,
-        workspace: config.DATALAYER_SLACK_QUOTA_WORKSPACE,
+        installation: config.DATALAYER_SLACK_QUOTA_WORKSPACE,
       },
       // *Open in Datalayer*: a one-use handoff to the exact session (S-305).
       openUrlOf: async (sessionId, request) => {
@@ -155,12 +167,16 @@ async function main(): Promise<void> {
     starters: new HostStarters(config.DATALAYER_API_URL, keyed, (key) =>
       hosts.hostKeyOf(key),
     ),
-    tracer: new LogTracer(new Logger()),
+    tracer: new LogTracer(new Logger(undefined, undefined, LOG_SALT)),
     deliveries,
     hosts,
     tokens,
   });
-  const poller = new DeliveryPoller(store, client, enqueueDelivery);
+  const poller = new DeliveryPoller(
+    deliverySinkOf(store),
+    client,
+    enqueueDelivery,
+  );
 
   // A worker serves only its health; Slack's requests reach the ingress.
   const health =

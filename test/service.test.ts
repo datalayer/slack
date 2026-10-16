@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { HostRefusedError } from "../src/host-client.js";
+import {
+  HostRefusedError,
+  type SemanticEvent,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { OPEN_ACTION, STOP_ACTION } from "../src/presentation.js";
 import { SlackAgentService, type StopValue } from "../src/service.js";
-import type { SemanticEvent } from "../src/semantic.js";
 import type { MemorySlackStore } from "../src/store.js";
 import {
   FakeAgents,

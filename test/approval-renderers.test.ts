@@ -7,15 +7,16 @@ import {
   approvalCard,
   REVIEW_ACTION,
 } from "../src/approval-card.js";
-import { renderApproval } from "../src/approval-renderers.js";
 import {
   presentationSchema,
+  renderApproval,
   type ApprovalPresentation,
-} from "../src/host-contracts.js";
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+import { CONTRACTS_PATH } from "./support/contracts.js";
 
-const contracts = JSON.parse(
-  readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
-) as { presentation: { example: unknown } };
+const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
+  presentation: { example: unknown };
+};
 const example = presentationSchema.parse(contracts.presentation.example);
 const context = {
   appName: "Desk",

@@ -1,5 +1,17 @@
-import type { AgentClient } from "./agent-client.js";
-import { HostRefusedError } from "./host-client.js";
+import {
+  DEFAULT_QUOTAS,
+  HostRefusedError,
+  Logger,
+  quotaEntries,
+  quotaWords,
+  resetOf,
+  systemClock,
+  windowOf,
+  type AgentClient,
+  type Clock,
+  type QuotaLimits,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
 import { StoreLinks, type AccountLinks } from "./host-installations.js";
 import type {
   IncomingPrompt,
@@ -7,22 +19,9 @@ import type {
   ThreadKey,
   TurnRequest,
 } from "./domain.js";
-import { Logger } from "./observability.js";
-import {
-  DEFAULT_QUOTAS,
-  quotaEntries,
-  quotaWords,
-  resetOf,
-  windowOf,
-  type QuotaLimits,
-} from "./quotas.js";
+import { LOG_SALT } from "./observability.js";
 import { stripAppMention } from "./presentation.js";
-import {
-  retryingSlackPort,
-  SlackRateLimiter,
-  systemClock,
-  type Clock,
-} from "./rate-limit.js";
+import { retryingSlackPort, SlackRateLimiter } from "./rate-limit.js";
 import { TurnRenderer } from "./render.js";
 import { TurnRouting, type Refusal } from "./routing.js";
 import type { SlackMessage, SlackPort } from "./slack-port.js";
@@ -96,7 +95,7 @@ export class SlackAgentService {
 
   constructor(
     readonly store: SlackStore,
-    readonly agents: AgentClient,
+    readonly agents: AgentClient<ThreadKey>,
     slack: SlackPort,
     readonly webUrl: string,
     /** Who is linked, and how one connects: Datalayer's record, through the host key. */
@@ -107,7 +106,7 @@ export class SlackAgentService {
     this.limiter = options.limiter ?? new SlackRateLimiter(this.#clock);
     this.#paced = slack;
     this.slack = retryingSlackPort(slack, this.limiter);
-    this.logger = options.logger ?? new Logger();
+    this.logger = options.logger ?? new Logger(undefined, undefined, LOG_SALT);
     this.routing = new TurnRouting(store, links, webUrl);
   }
 
@@ -126,7 +125,7 @@ export class SlackAgentService {
       this.logger.audit("identity.unlinked", {
         installation: `${key.appId}:${key.enterpriseId ?? "-"}:${key.teamId}`,
         reason: code,
-        slackUser: userId,
+        user: userId,
       });
     }
   }
@@ -138,7 +137,7 @@ export class SlackAgentService {
     this.logger.audit("identity.refused", {
       installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
       reason: refusal,
-      slackUser: prompt.userId,
+      user: prompt.userId,
     });
   }
 
@@ -193,24 +192,32 @@ export class SlackAgentService {
       const installation = await this.store.getInstallation(prompt);
       const limits = this.options.quotas ?? DEFAULT_QUOTAS;
       const taken = await this.store.takeQuota(
-        quotaEntries(limits, {
-          applicationId: resolved.applicationId,
-          installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
-          organizationId: installation?.datalayerOrganizationId,
-          slackUserId: prompt.userId,
-        }),
+        quotaEntries(
+          limits,
+          {
+            applicationId: resolved.applicationId,
+            externalUserId: prompt.userId,
+            installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
+            organizationId: installation?.datalayerOrganizationId,
+          },
+          // The keys Slack's counts were kept under (`workspace:<id>`).
+          "workspace",
+        ),
         windowOf(now),
       );
       if (!taken.ok) {
         await this.store.endTurn(prompt, prompt.eventId);
         this.#refused(prompt, "quota");
         await this.privately(prompt, prompt.userId, {
-          text: quotaWords({
-            limit: taken.entry.limit,
-            ok: false,
-            resetsAt: resetOf(now),
-            scope: taken.entry.scope,
-          }),
+          text: quotaWords(
+            {
+              limit: taken.entry.limit,
+              ok: false,
+              resetsAt: resetOf(now),
+              scope: taken.entry.scope,
+            },
+            "this workspace",
+          ),
         });
         return;
       }

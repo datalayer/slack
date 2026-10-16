@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { LogTracer, pseudonym } from "../src/observability.js";
-import { MemoryWorkQueue } from "../src/queue.js";
+import {
+  LogTracer,
+  MemoryWorkQueue,
+  pseudonym,
+  type SemanticEvent,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
+import { LOG_SALT } from "../src/observability.js";
 import { SlackAgentService } from "../src/service.js";
-import type { SemanticEvent } from "../src/semantic.js";
 import type { MemorySlackStore } from "../src/store.js";
 import {
   SEND_EDITED_ACTION,
@@ -341,7 +346,9 @@ describe("tracing a job (S-101, §12.2)", () => {
       name: "slack.job.prompt",
       outcome: "ok",
     });
-    expect(span["datalayer.slack.installation"]).toBe(pseudonym("A1:-:T1"));
+    expect(span["datalayer.slack.installation"]).toBe(
+      pseudonym("A1:-:T1", LOG_SALT),
+    );
     expect(lines.join("\n")).not.toContain("secret plan");
     expect(lines.join("\n")).not.toContain("C1");
   });

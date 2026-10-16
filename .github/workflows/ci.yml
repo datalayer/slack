@@ -29,22 +29,28 @@ jobs:
         with:
           node-version: "20.19"
       # No lockfile is kept (the monorepo's rule): the exact versions of
-      # package.json are installed, and the graph gate reads what was installed.
+      # package.json are installed. agent-runtimes is an optional peer, never
+      # installed whole: its pinned release's lib/portable is extracted after
+      # the install (plans/DISCORD.md §4.2, DC-004).
       - run: npm install --no-audit --no-fund
+      - name: agent-runtimes' lib/portable (config.agentRuntimesVersion)
+        run: npm run fetch:agent-runtimes
       - name: Format
         run: npm run format:check
       - name: Lint
         run: npm run lint
       - name: Strict TypeScript
         run: npm run typecheck
-      - name: Forbidden imports in the production graph
+      - name: The bundle graph (sources and agent-runtimes' lib/portable only)
         run: npm run check:imports
+      - name: The installed graph of the bundle's externals
+        run: npm run check:installed
       - name: Manifest drift
         run: npm run manifest:check
       - name: Tests (memory and Postgres stores)
         run: npm test
-      - name: Build
-        run: npm run build
+      - name: Bundle
+        run: npm run bundle
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
 

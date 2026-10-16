@@ -1,3 +1,7 @@
+import {
+  resolveApplication,
+  usableAllowances,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { KnownBlock } from "@slack/types";
 
 import type {
@@ -110,61 +114,53 @@ export class TurnRouting {
 
     const visibility = visibilityOf(prompt);
     const allowances = await this.store.getAllowances(key);
-    const allowed = (id: string) =>
-      allowances.length === 0
-        ? undefined
-        : allowances.find((one) => one.applicationId === id && one.enabled);
     const binding = await this.store.getThread(prompt);
-
-    let applicationId: string | undefined;
-    if (binding) {
-      // A thread keeps its application: switching is explicit (S-208).
-      applicationId = binding.applicationId;
-    } else if (prompt.applicationId) {
-      applicationId = prompt.applicationId;
-    } else if (await this.store.getNextApplication(prompt)) {
-      applicationId = await this.store.getNextApplication(prompt);
-    } else {
-      const channel =
-        visibility === "channel"
-          ? await this.store.getChannelBinding(key, prompt.channelId)
-          : undefined;
-      if (channel?.state === "deny")
-        return {
-          ok: false,
-          refusal: "channel-denied",
-          message: {
-            text: `@Datalayer is turned off in this channel by your Datalayer administrator. Ask it in a direct message instead. ${this.#docs("administration")}`,
-          },
-        };
-      applicationId =
-        channel?.applicationId ?? (await this.store.getDefaultApplication(key));
-    }
-
-    if (!applicationId)
-      return {
-        ok: false,
-        refusal: "no-application",
-        message: this.selector(allowances, prompt),
-      };
-
-    const allowance = allowed(applicationId);
-    if (allowances.length > 0 && !allowance)
-      return {
-        ok: false,
-        refusal: "not-allowed",
-        message: {
-          text: `That application is no longer available from Slack in this workspace. ${this.#docs("administration")}`,
-        },
-      };
-    if (allowance?.channelPolicy === "direct-only" && visibility === "channel")
-      return {
-        ok: false,
-        refusal: "direct-only",
-        message: {
-          text: `${escapeSlack(allowance.name)} answers only in a direct message with @Datalayer. Open @Datalayer's Messages tab and ask there.`,
-        },
-      };
+    // The shared order (DISCORD DC-004): the thread's own (switching is
+    // explicit, S-208), the choice, the next session's, the channel's, the
+    // workspace default; then allowed here and in this kind of conversation.
+    const resolution = await resolveApplication({
+      allowances,
+      channel: () => this.store.getChannelBinding(key, prompt.channelId),
+      defaultApplication: () => this.store.getDefaultApplication(key),
+      explicit: prompt.applicationId,
+      next: () => this.store.getNextApplication(prompt),
+      threadApplication: binding?.applicationId,
+      visibility,
+    });
+    if (!resolution.ok)
+      switch (resolution.refusal) {
+        case "channel-denied":
+          return {
+            ok: false,
+            refusal: "channel-denied",
+            message: {
+              text: `@Datalayer is turned off in this channel by your Datalayer administrator. Ask it in a direct message instead. ${this.#docs("administration")}`,
+            },
+          };
+        case "no-application":
+          return {
+            ok: false,
+            refusal: "no-application",
+            message: this.selector(allowances, prompt),
+          };
+        case "not-allowed":
+          return {
+            ok: false,
+            refusal: "not-allowed",
+            message: {
+              text: `That application is no longer available from Slack in this workspace. ${this.#docs("administration")}`,
+            },
+          };
+        case "direct-only":
+          return {
+            ok: false,
+            refusal: "direct-only",
+            message: {
+              text: `${escapeSlack(resolution.allowance?.name ?? "This application")} answers only in a direct message with @Datalayer. Open @Datalayer's Messages tab and ask there.`,
+            },
+          };
+      }
+    const applicationId = resolution.applicationId;
 
     return {
       ok: true,
@@ -188,11 +184,7 @@ export class TurnRouting {
      */
     switching?: Pick<ThreadKey, "channelId" | "threadTs">,
   ): SlackMessage {
-    const usable = allowances.filter(
-      (one) =>
-        one.enabled &&
-        (one.channelPolicy === "channels" || visibilityOf(prompt) === "direct"),
-    );
+    const usable = usableAllowances(allowances, visibilityOf(prompt));
     if (usable.length === 0)
       return {
         text: `No application is available from Slack here yet. Ask a Datalayer owner to choose one from the application's Ship tab. ${this.#docs("administration")}`,

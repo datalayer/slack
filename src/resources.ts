@@ -1,14 +1,17 @@
+import {
+  MemoryWorkQueue,
+  PostgresWorkQueue,
+  SecretCipher,
+  type WorkQueue,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { Pool } from "pg";
 
 import type { SlackJob } from "./bolt.js";
 import type { Config } from "./config.js";
-import { SecretCipher } from "./crypto.js";
 import { createDatabase } from "./database.js";
 import type { HostInstallations } from "./host-installations.js";
 import { PostgresInstallationStore } from "./oauth-store.js";
-import { PostgresWorkQueue } from "./postgres-queue.js";
 import { PostgresSlackStore } from "./postgres-store.js";
-import { MemoryWorkQueue, type WorkQueue } from "./queue.js";
 import { MemorySlackStore, type SlackStore } from "./store.js";
 
 export type RuntimeResources = Readonly<{
@@ -46,6 +49,7 @@ export function createRuntimeResources(
   const cipher = new SecretCipher(
     required(config.SLACK_TOKEN_ENCRYPTION_KEY, "SLACK_TOKEN_ENCRYPTION_KEY"),
     config.SLACK_TOKEN_ENCRYPTION_KEY_VERSION,
+    "SLACK_TOKEN_ENCRYPTION_KEY",
   );
   return postgresResources(
     database,
@@ -61,7 +65,7 @@ function postgresResources(
   appId: string,
   hostsOf: HostsOf,
 ): RuntimeResources {
-  const queue = new PostgresWorkQueue<SlackJob>(database);
+  const queue = new PostgresWorkQueue<SlackJob>(database, "slack");
   const store = new PostgresSlackStore(database, cipher);
   const hosts = hostsOf(store);
   return {

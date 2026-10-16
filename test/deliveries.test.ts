@@ -4,23 +4,23 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { describe, expect, it } from "vitest";
 
-import { HostKeyCredentials } from "../src/agent-client.js";
+import { slackShape } from "../src/agent-client.js";
 import { APPROVE_ACTION } from "../src/approval-card.js";
+import { DeliveryHandler, deliverySinkOf } from "../src/deliveries.js";
+import type { SlackInstallation, ThreadKey } from "../src/domain.js";
 import {
-  DeliveryHandler,
+  DatalayerHostClient,
   DeliveryPoller,
   deliveryRoute,
+  HostKeyCredentials,
   type DeliveryJob,
-} from "../src/deliveries.js";
-import type { SlackInstallation, ThreadKey } from "../src/domain.js";
-import { DatalayerHostClient } from "../src/host-client.js";
-import type { HostDelivery } from "../src/host-contracts.js";
+  type HostDelivery,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { SlackMessage, SlackPort } from "../src/slack-port.js";
 import { MemorySlackStore } from "../src/store.js";
+import { CONTRACTS_PATH } from "./support/contracts.js";
 
-const contracts = JSON.parse(
-  readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
-) as {
+const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
   decision: { request: Record<string, unknown> };
   delivery: {
     signing: {
@@ -160,7 +160,12 @@ async function setup(answers: Record<string, () => Response>) {
   const handler = new DeliveryHandler(
     store,
     client,
-    new HostKeyCredentials(API, async () => KEY, fetchImplementation),
+    new HostKeyCredentials(
+      API,
+      async () => KEY,
+      slackShape,
+      fetchImplementation,
+    ),
     slack,
     WEB,
     fetchImplementation,
@@ -218,7 +223,7 @@ describe("The delivery webhook", () => {
     const queued: DeliveryJob[] = [];
     const { body, signature, timestamp } = contracts.delivery.signing;
     const handle = deliveryRoute(
-      store,
+      deliverySinkOf(store),
       async (job) => void queued.push(job),
       () => timestamp + 5,
     );
@@ -248,7 +253,7 @@ describe("The delivery webhook", () => {
     };
     const at = (now: number) =>
       deliveryRoute(
-        store,
+        deliverySinkOf(store),
         async (job) => void queued.push(job),
         () => now,
       );
@@ -299,7 +304,7 @@ describe("The outbox poller", () => {
     });
     const queued: DeliveryJob[] = [];
     const poller = new DeliveryPoller(
-      store,
+      deliverySinkOf(store),
       new DatalayerHostClient(API, fetchImplementation),
       async (job) => void queued.push(job),
     );

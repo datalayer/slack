@@ -185,40 +185,53 @@ The adapter's side is in `src/deliveries.ts`: the route
   `datalayer-otel-otel-collector-svc.datalayer-otel:4317`. Secrets come from
   the rc files and are never created by an agent.
 
-## 8. Reuse boundary (S-005)
+## 8. Reuse boundary (S-005, DISCORD DC-004)
 
-The production graph is checked by `scripts/check-forbidden-imports.mjs`. It
-walks the source imports and the installed transitive production graph
-(`npm ls --omit=dev --all`). It reads what was installed, so it works with or
-without a lockfile; the monorepo keeps none. It fails on `@jupyter/*`,
-`@jupyterlab/*`, `@jupyter-widgets/*`, `@lumino/*`, `@datalayer/jupyter-*`,
-`react-dom`, `react` and `@primer/*`. The lockfile walk (`productionGraph`) is
-kept for fixtures.
+**The shared host code lives in agent-runtimes' `src/portable/hosts`** (the
+user's decision of 16 October 2026; plans/DISCORD.md §4.2, §15). What any chat
+host shares — the host contracts and `contracts.json`, the ai-agents host
+client, the agent client over the session API (with Slack's `HostShape`
+injected: `src/agent-client.ts`), `hostSessionUid`, the semantic events and
+their AG-UI reduction, approval renderers and `hostMayDecide`, deliveries,
+`TurnState`, application resolution, the durable queue, quotas, `SecretCipher`,
+observability, dead letters, health, the shared schema and the forbidden-graph
+functions — is imported from `@datalayer/agent-runtimes/lib/portable/hosts`,
+never copied and never re-exported here. The reducer itself is in
+`src/portable` (DISCORD DC-005); the hosts entry re-exports it, so this service
+never imports `@datalayer/agent-runtimes/lib/portable`, whose types reach
+Reactor.
 
-**Decision, 16 October 2026: the Bolt adapter keeps its own AG-UI reduction.**
-`@datalayer/agent-runtimes` 1.5.44 publishes no `exports` map, and its
-production dependencies include `@jupyterlab/*`, `@lumino/*`, `react-dom`,
-`@primer/react` and `@datalayer/jupyter-react`. Installing it, even for a deep
-import of `lib/portable/conversation.js`, would bring all of them into this
-service's production graph, and the gate refuses that. Extracting
-`src/portable` into a dependency-free package is the §4.2 path. It is a new npm
-package and release of agent-runtimes, with web, mobile and Slack moved onto
-it. It is worth doing once a second server-side consumer exists.
+agent-runtimes' installed npm graph is Jupyter and React by design, so it is
+never installed here: it is an optional peer, and `config.agentRuntimesVersion`
+is the one exact pin. In the monorepo the workspace link serves `lib/portable`
+(the user's watcher builds it). In CI and the image,
+`scripts/fetch-agent-runtimes.mjs` extracts that release's `lib/portable` only,
+after every `npm install`.
 
-Until then, the reduction here is small: AG-UI to the eleven semantic kinds,
-not the web's conversation state. It is pinned by
-`test/contracts/semantic-events.json`, which reduces the AG-UI event names that
-agent-runtimes emits. If agent-runtimes renames an event, the fixture and this
-reducer change in the same pull request.
+What runs is one esbuild bundle (`scripts/bundle.ts`, `dist/index.js`,
+`dist/migrate.js`, `dist/dead-letters.js`): the service's sources and the
+`lib/portable` modules they reach, its `dependencies` external. The gate
+checks what was bundled (`forbiddenInBundle` over the metafile:
+`npm run check:imports`, in memory), the sources (`scripts/forbidden-sources.ts`)
+and, in CI only, the installed graph of the externals
+(`npm ls --omit=dev --omit=peer --all`: `npm run check:installed`). It fails
+on `@jupyter/*`, `@jupyterlab/*`, `@jupyter-widgets/*`, `@lumino/*`,
+`@datalayer/jupyter-*`, `react`, `react-dom`, `@primer/*`,
+`@datalayer/reactor` and the other host services.
+
+The shared tables (`slack_event_claims`, `slack_jobs`, `slack_usage`,
+`slack_payload_access`, `slack_job_replays`) are `hostSchemaSql("slack")`,
+applied by `scripts/migrate.ts` before `migrations/`; a database migrated
+before and after the move dumps the same schema (`pg_dump --schema-only`,
+16 October 2026).
 
 ## 9. Core's portable clients (tech/datalayer/core)
 
-`@datalayer/core` 1.2.20 has no `exports` map. Its production dependencies
+`@datalayer/core` has no `exports` map and its production dependencies
 include `@jupyterlab/*`, `@lumino/*`, `@datalayer/jupyter-react` and
-`@datalayer/jupyter-lexical`, so it fails the same gate as agent-runtimes.
-The adapter therefore uses none of its clients. It speaks the HTTP contracts
-above directly (`src/host-client.ts`, `src/agent-client.ts`) and validates
-every answer with zod against `contracts.json`.
+`@datalayer/jupyter-lexical`. The service uses none of its clients: the HTTP
+contracts above are spoken by the shared host kit, which validates every
+answer with zod against `contracts.json`.
 
 Reused only as conventions:
 
@@ -226,9 +239,6 @@ Reused only as conventions:
   runtime;
 - bearer authentication;
 - the OTEL collector.
-
-A server-safe export of Core's typed client and auth errors is the same
-§4.2 extraction as agent-runtimes'. Nothing in the adapter waits on it.
 
 ## 10. Owners
 

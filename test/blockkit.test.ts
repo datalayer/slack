@@ -12,10 +12,10 @@ import { homeView } from "../src/home.js";
 import {
   presentationSchema,
   type ApprovalPresentation,
-} from "../src/host-contracts.js";
+  type SemanticEvent,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { TurnPresentation } from "../src/presentation.js";
 import { TurnRouting } from "../src/routing.js";
-import type { SemanticEvent } from "../src/semantic.js";
 import { MemorySlackStore } from "../src/store.js";
 import {
   BLOCK_KIT,
@@ -24,6 +24,7 @@ import {
   surfaceProblems,
 } from "./support/blockkit.js";
 import { FakeLinks } from "./support/fakes.js";
+import { CONTRACTS_PATH } from "./support/contracts.js";
 
 /**
  * Block Kit snapshots of every message, modal and App Home @Datalayer
@@ -36,9 +37,9 @@ const OPEN = "https://datalayer.ai/hosts/open?code=abc";
 const WEB = "https://datalayer.ai";
 const key = { appId: "A1", teamId: "T1" } as const;
 
-const contracts = JSON.parse(
-  readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
-) as { presentation: { example: unknown } };
+const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
+  presentation: { example: unknown };
+};
 const example: ApprovalPresentation = presentationSchema.parse(
   contracts.presentation.example,
 );

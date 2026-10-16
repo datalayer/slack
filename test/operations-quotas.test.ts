@@ -3,11 +3,17 @@ import { randomBytes } from "node:crypto";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { DeadLetters, payloadHash } from "../src/dead-letters.js";
-import { SecretCipher } from "../src/crypto.js";
+import {
+  DeadLetters,
+  payloadHash,
+  PostgresWorkQueue,
+  quotaEntries,
+  quotaWords,
+  resetOf,
+  SecretCipher,
+  windowOf,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { PostgresSlackStore } from "../src/postgres-store.js";
-import { PostgresWorkQueue } from "../src/postgres-queue.js";
-import { quotaEntries, quotaWords, resetOf, windowOf } from "../src/quotas.js";
 import { SlackAgentService } from "../src/service.js";
 import { MemorySlackStore, type SlackStore } from "../src/store.js";
 import {
@@ -21,16 +27,21 @@ import {
 } from "./support/fakes.js";
 import { testDatabase } from "./support/postgres.js";
 
-const limits = { application: 5, organization: 5, user: 2, workspace: 3 };
+const limits = { application: 5, installation: 3, organization: 5, user: 2 };
 const turn = {
   applicationId: "dep-1",
+  externalUserId: "U1",
   installation: "A1:-:T1",
-  slackUserId: "U1",
 };
+// Slack keeps its counts under `workspace:<id>` (DISCORD DC-004).
+const entriesOf = (
+  limit: typeof limits,
+  one: typeof turn & { organizationId?: string },
+) => quotaEntries(limit, one, "workspace");
 
 async function quotaCases(store: SlackStore) {
   const window = "2026-10-16T08";
-  const entries = quotaEntries(limits, turn);
+  const entries = entriesOf(limits, turn);
   expect((await store.takeQuota(entries, window)).ok).toBe(true);
   expect((await store.takeQuota(entries, window)).ok).toBe(true);
   // The person's two are spent: refused, and nothing else counted.
@@ -40,10 +51,10 @@ async function quotaCases(store: SlackStore) {
   });
   expect(await store.quotaUsed("workspace:A1:-:T1", window)).toBe(2);
   // Another person: the workspace's third, then the workspace is spent.
-  const bob = quotaEntries(limits, { ...turn, slackUserId: "U2" });
+  const bob = entriesOf(limits, { ...turn, externalUserId: "U2" });
   expect((await store.takeQuota(bob, window)).ok).toBe(true);
   expect(await store.takeQuota(bob, window)).toMatchObject({
-    entry: { scope: "workspace" },
+    entry: { scope: "installation" },
     ok: false,
   });
   // The next hour starts again.
@@ -57,10 +68,10 @@ describe("quotas before costly work (S-404)", () => {
 
   it("counts an organization when the installation names one", () => {
     expect(
-      quotaEntries(limits, { ...turn, organizationId: "org-1" }).map(
+      entriesOf(limits, { ...turn, organizationId: "org-1" }).map(
         (one) => one.scope,
       ),
-    ).toEqual(["user", "workspace", "organization", "application"]);
+    ).toEqual(["user", "installation", "organization", "application"]);
   });
 
   it("says which limit and when it resets", () => {
@@ -68,12 +79,15 @@ describe("quotas before costly work (S-404)", () => {
     expect(windowOf(now)).toBe("2026-10-16T08");
     expect(resetOf(now).toISOString()).toBe("2026-10-16T09:00:00.000Z");
     expect(
-      quotaWords({
-        limit: 60,
-        ok: false,
-        resetsAt: resetOf(now),
-        scope: "user",
-      }),
+      quotaWords(
+        {
+          limit: 60,
+          ok: false,
+          resetsAt: resetOf(now),
+          scope: "user",
+        },
+        "this workspace",
+      ),
     ).toBe(
       "@Datalayer has answered 60 questions this hour for you, its limit. Ask again after 09:00 UTC.",
     );
@@ -132,9 +146,9 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
       database,
       new SecretCipher(randomBytes(32).toString("base64"), 1),
     );
-    const entries = quotaEntries(
-      { ...limits, user: 3, workspace: 100 },
-      { ...turn, slackUserId: "Ucc" },
+    const entries = entriesOf(
+      { ...limits, installation: 100, user: 3 },
+      { ...turn, externalUserId: "Ucc" },
     );
     const taken = await Promise.all(
       Array.from({ length: 8 }, () =>
@@ -145,7 +159,7 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
   });
 
   it("lists dead letters by metadata and hash, replays once, and reads a payload only for a reason, audited", async () => {
-    const queue = new PostgresWorkQueue<unknown>(database);
+    const queue = new PostgresWorkQueue<unknown>(database, "slack");
     const payload = {
       prompt: { text: "my salary is 100k", token: "xoxb-123456789012-secret" }, // gitleaks:allow — a fake token the redaction test must strip
     };
@@ -204,7 +218,7 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
   });
 
   it("reads a dead job's payload only: a live job or an unknown id is refused, and no read is recorded (S-405)", async () => {
-    const queue = new PostgresWorkQueue<unknown>(database);
+    const queue = new PostgresWorkQueue<unknown>(database, "slack");
     const live = await database.query<{ id: string }>(
       "INSERT INTO slack_jobs (payload, state, attempts) VALUES ($1, 'ready', 0) RETURNING id::text",
       [{ prompt: { text: "a live question" } }],

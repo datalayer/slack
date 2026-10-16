@@ -1,21 +1,35 @@
 import { readdir, readFile } from "node:fs/promises";
 
-import { readConfig } from "../src/config.js";
-import { createDatabase } from "../src/database.js";
+import { applyHostSchema } from "@datalayer/agent-runtimes/lib/portable/hosts";
+import pg from "pg";
 
-const config = readConfig();
-if (!config.DATABASE_URL)
-  throw new Error("DATABASE_URL is required to migrate.");
-const database = createDatabase(config.DATABASE_URL);
+// The shared host tables first (`hostSchemaSql("slack")`), then every Slack
+// migration in order; each is idempotent (IF NOT EXISTS) and re-applied
+// every time (there is no ledger). Bundled as dist/migrate.js, run by the
+// image's migrate job before the service starts (`node dist/migrate.js`);
+// in development with `npm run migrate`.
+const url = process.env.DATABASE_URL;
+if (!url) {
+  console.error("DATABASE_URL is required to migrate.");
+  process.exit(1);
+}
+const database = new pg.Pool({
+  application_name: "datalayer-slack-migrate",
+  connectionString: url,
+  max: 1,
+});
+// Beside the bundle in the image (/app/migrations), beside scripts/ in the repo.
 const folder = new URL("../migrations/", import.meta.url);
 try {
-  // Every migration, in order; each is idempotent (IF NOT EXISTS).
+  await applyHostSchema(database, "slack");
   const files = (await readdir(folder))
     .filter((name) => name.endsWith(".sql"))
     .sort();
   for (const name of files)
     await database.query(await readFile(new URL(name, folder), "utf8"));
-  console.info(`Applied ${files.length} Slack database migrations.`);
+  console.info(
+    `Applied the shared host tables and ${files.length} Slack database migrations.`,
+  );
 } finally {
   await database.end();
 }

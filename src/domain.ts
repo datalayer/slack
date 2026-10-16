@@ -1,4 +1,7 @@
-import type { SemanticEvent } from "./semantic.js";
+import type {
+  HostTurnRequest,
+  StarterSource as HostStarterSource,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 export type SlackInstallationKey = Readonly<{
   appId: string;
@@ -167,32 +170,8 @@ export type IncomingPrompt = ThreadKey &
     userTeamId?: string;
   }>;
 
-export type TurnRequest = Readonly<{
-  /** The deployment the turn runs: one the installation allows. */
-  applicationId: string;
-  externalEventId: string;
-  /** The Slack user the host speaks for: what the credential exchange names. */
-  externalUserId: string;
-  principalId: string;
-  prompt: string;
-  provenance: ThreadKey;
-  sessionId?: string;
-  /**
-   * How many sessions the thread had before (an explicit start over or
-   * another application): a new session's uid is derived with it.
-   */
-  sessionGeneration?: number;
-}>;
-
-export type TurnStream = Readonly<{
-  /**
-   * The run the stream is of, as its `loop.turn` event names it: known once
-   * the stream has said it (what the Stop button names).
-   */
-  run: { id?: string };
-  sessionId: string;
-  updates: AsyncIterable<SemanticEvent>;
-}>;
+/** A Slack turn: the shared host turn, its provenance the Slack thread. */
+export type TurnRequest = HostTurnRequest<ThreadKey>;
 
 export function installationKey(value: SlackInstallationKey): string {
   return `${value.appId}:${value.enterpriseId ?? "-"}:${value.teamId}`;
@@ -221,14 +200,5 @@ export function threadKey(value: ThreadKey): string {
   return `${installationKey(value)}:${value.channelId}:${value.threadTs}`;
 }
 
-/** One of an application's starters (S-104): the words shown, and the message it suggests asking. */
-export type Starter = Readonly<{ label: string; message: string }>;
-
 /** Where an application's starters are read, as one linked person of one workspace. */
-export interface StarterSource {
-  startersOf(
-    key: SlackInstallationKey,
-    slackUserId: string,
-    applicationId: string,
-  ): Promise<readonly Starter[]>;
-}
+export type StarterSource = HostStarterSource<SlackInstallationKey>;

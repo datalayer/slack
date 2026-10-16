@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { registerSlackListeners } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
-import { MemoryWorkQueue } from "../src/queue.js";
+import { MemoryWorkQueue } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import {
   ASK_CHOICE_ACTION,
   askChoiceValue,

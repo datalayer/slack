@@ -1,4 +1,14 @@
-import type { DeliveryHandler, DeliveryJob } from "./deliveries.js";
+import {
+  DEFAULT_QUOTAS,
+  noTracer,
+  userQuotaKey,
+  windowOf,
+  type DeliveryJob,
+  type Tracer,
+  type WorkQueue,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
+import type { DeliveryHandler } from "./deliveries.js";
 import type {
   IncomingPrompt,
   SlackInstallationKey,
@@ -6,11 +16,9 @@ import type {
   ThreadKey,
 } from "./domain.js";
 import { homeView } from "./home.js";
-import { noTracer, traceAttributes, type Tracer } from "./observability.js";
-import { DEFAULT_QUOTAS, windowOf } from "./quotas.js";
+import { traceAttributes } from "./observability.js";
 import type { HostInstallations } from "./host-installations.js";
 import { escapeSlack } from "./presentation.js";
-import type { WorkQueue } from "./queue.js";
 import type { SelectorValue } from "./routing.js";
 import type { SlackAgentService, StopValue } from "./service.js";
 
@@ -102,7 +110,10 @@ export class SlackWorker {
     await this.parts.hosts?.refreshAllowances(key).catch(() => undefined);
     const limits = this.service.options.quotas ?? DEFAULT_QUOTAS;
     const used = await this.store.quotaUsed(
-      `user:${key.appId}:${key.enterpriseId ?? "-"}:${key.teamId}:${userId}`,
+      userQuotaKey(
+        `${key.appId}:${key.enterpriseId ?? "-"}:${key.teamId}`,
+        userId,
+      ),
       windowOf(new Date()),
     );
     const view = await homeView(
@@ -299,7 +310,7 @@ export class SlackWorker {
     this.service.logger.audit("identity.unlinked", {
       installation: `${key.appId}:${key.enterpriseId ?? "-"}:${key.teamId}`,
       reason: ended ? "person" : "not-linked",
-      slackUser: slackUserId,
+      user: slackUserId,
     });
     await this.home(key, slackUserId);
   }

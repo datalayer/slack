@@ -5,19 +5,13 @@
  * again a bounded number of times. Never one call per model token.
  */
 
+import {
+  systemClock,
+  type Clock,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
 import type { SlackInstallationKey, ThreadKey } from "./domain.js";
 import { isDirectChannel, isThreadKey, type SlackPort } from "./slack-port.js";
-
-export interface Clock {
-  now(): number;
-  sleep(milliseconds: number): Promise<void>;
-}
-
-export const systemClock: Clock = {
-  now: () => Date.now(),
-  sleep: (milliseconds) =>
-    new Promise((resolve) => setTimeout(resolve, milliseconds)),
-};
 
 /** How far apart calls of one method to one channel are, in milliseconds. */
 export const METHOD_SPACING: Readonly<Record<string, number>> = {

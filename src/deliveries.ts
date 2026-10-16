@@ -1,10 +1,17 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-
 import {
+  hostMayDecide,
   hostSessionOf,
+  HostRefusedError,
   lastAnswer,
+  receiveDelivery,
+  type DatalayerHostClient,
+  type DeliveryJob,
+  type DeliverySink,
+  type HostDelivery,
   type HostKeyCredentials,
-} from "./agent-client.js";
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+import { z } from "zod";
+
 import {
   approvalCard,
   decidedCard,
@@ -12,27 +19,41 @@ import {
   type ConfirmMetadata,
 } from "./approval-card.js";
 import type { SlackInstallation, SlackInstallationKey } from "./domain.js";
-import { HostRefusedError, type DatalayerHostClient } from "./host-client.js";
-import {
-  DELIVERY_HEADER,
-  SIGNATURE_HEADER,
-  slackMayDecide,
-  targetSchema,
-  TIMESTAMP_HEADER,
-  verifyDelivery,
-  type DeliveryTarget,
-  type HostDelivery,
-} from "./host-contracts.js";
 import { safeSlackText, slackLink } from "./presentation.js";
 import type { SlackPort } from "./slack-port.js";
 import type { SlackStore } from "./store.js";
 
-/** Where Datalayer pushes an installation's deliveries, under the service's public address. */
-export const DELIVERY_PATH = "/datalayer/deliveries";
-export const DELIVERY_ROUTE = `${DELIVERY_PATH}/:hostUid`;
-const DELIVERY_BODY_LIMIT = 64 * 1024;
+/**
+ * Where a delivery belongs in Slack: the target the adapter gave when it
+ * mapped the session to its thread (`PUT /apps/hosts/sessions/{uid}`), handed
+ * back verbatim with every delivery. `userId` is the Slack user the session's
+ * host token speaks for: the one an approval waits on.
+ */
+export const targetSchema = z.object({
+  appId: z.string().min(1),
+  channelId: z.string().min(1),
+  enterpriseId: z.string().optional(),
+  teamId: z.string().min(1),
+  threadTs: z.string().min(1),
+  userId: z.string().min(1),
+});
+export type DeliveryTarget = z.infer<typeof targetSchema>;
 
-export type DeliveryJob = Readonly<{ delivery: HostDelivery; hostUid: string }>;
+/** The Slack store, as the shared deliveries read it. */
+export function deliverySinkOf(store: SlackStore): DeliverySink {
+  return {
+    boundHosts: async () =>
+      (await store.listBoundInstallations()).flatMap((one) =>
+        one.datalayerHostKey && one.datalayerHostUid
+          ? [{ hostKey: one.datalayerHostKey, hostUid: one.datalayerHostUid }]
+          : [],
+      ),
+    deliverySecretOf: async (hostUid) =>
+      (await store.getInstallationByHostUid(hostUid))?.deliverySecret,
+    hostKeyOf: async (hostUid) =>
+      (await store.getInstallationByHostUid(hostUid))?.datalayerHostKey,
+  };
+}
 
 /** A direct message's channel: an approval there is shown in the thread itself. */
 const isDirect = (channelId: string): boolean => channelId.startsWith("D");
@@ -70,21 +91,17 @@ export class DeliveryHandler {
 
   /** Handle one delivery of an installation once, then acknowledge it at Datalayer. */
   async receive(job: DeliveryJob): Promise<void> {
-    const installation = await this.store.getInstallationByHostUid(job.hostUid);
-    if (!installation?.datalayerHostKey) return; // uninstalled: late work is dropped
-    const claim = `delivery:${job.hostUid}:${job.delivery.delivery}`;
-    if (await this.store.claimEvent(claim)) {
-      try {
-        await this.handle(installation, job.delivery);
-      } catch (error) {
-        await this.store.releaseEvent(claim);
-        throw error;
-      }
-    }
-    await this.client.acknowledge(
-      installation.datalayerHostKey,
-      job.delivery.delivery,
-    );
+    await receiveDelivery(job, {
+      claims: this.store,
+      client: this.client,
+      handle: async (delivery) => {
+        const installation = await this.store.getInstallationByHostUid(
+          job.hostUid,
+        );
+        if (installation) await this.handle(installation, delivery);
+      },
+      sink: deliverySinkOf(this.store),
+    });
   }
 
   async handle(
@@ -327,7 +344,7 @@ export class DeliveryHandler {
     }
     if (
       presentation.digest !== input.metadata.d ||
-      !slackMayDecide(presentation)
+      !hostMayDecide(presentation)
     )
       return "changed";
     try {
@@ -367,130 +384,3 @@ export const DECISION_WORDS: Record<
     "Connect your Datalayer account from @Datalayer's Home before deciding from Slack.",
   "not-yours": "Only the person this approval waits on decides it.",
 };
-
-async function rawBodyOf(request: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    size += (chunk as Buffer).length;
-    if (size > DELIVERY_BODY_LIMIT)
-      throw new Error("The delivery is too large.");
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
-/**
- * The signed webhook Datalayer pushes to (`POST /datalayer/deliveries/{host}`,
- * registered with `PUT …/self/delivery`): verified with that installation's
- * secret — HMAC over `<timestamp>.<body>`, five minutes at most — then queued
- * and acknowledged with 2xx at once; the work runs from the queue.
- */
-export function deliveryRoute(
-  store: SlackStore,
-  enqueue: (job: DeliveryJob) => Promise<void>,
-  nowSeconds?: () => number,
-) {
-  return async (
-    request: IncomingMessage & { params?: Record<string, string | string[]> },
-    response: ServerResponse,
-  ): Promise<void> => {
-    const answer = (status: number, body: Record<string, unknown>) => {
-      response.writeHead(status, { "content-type": "application/json" });
-      response.end(JSON.stringify(body));
-    };
-    try {
-      const named = request.params?.hostUid;
-      const hostUid = typeof named === "string" ? named : "";
-      const installation = hostUid
-        ? await store.getInstallationByHostUid(hostUid)
-        : undefined;
-      if (!installation?.deliverySecret)
-        return answer(404, { ok: false, error: "unknown installation" });
-      const header = (name: string) => {
-        const value = request.headers[name.toLowerCase()];
-        return Array.isArray(value) ? value[0] : value;
-      };
-      const rawBody = await rawBodyOf(request);
-      let delivery: HostDelivery;
-      try {
-        delivery = verifyDelivery({
-          nowSeconds: nowSeconds?.(),
-          rawBody,
-          secret: installation.deliverySecret,
-          signature: header(SIGNATURE_HEADER),
-          timestamp: header(TIMESTAMP_HEADER),
-        });
-      } catch {
-        return answer(401, { ok: false, error: "not verified" });
-      }
-      if (
-        header(DELIVERY_HEADER) &&
-        header(DELIVERY_HEADER) !== delivery.delivery
-      )
-        return answer(400, { ok: false, error: "delivery mismatch" });
-      await enqueue({ delivery, hostUid });
-      return answer(200, { ok: true });
-    } catch {
-      return answer(500, { ok: false });
-    }
-  };
-}
-
-/**
- * The outbox, read when a push was missed or no address is registered
- * (`GET …/self/deliveries`): each delivery of every bound installation
- * queued, handled once, then acknowledged.
- */
-export class DeliveryPoller {
-  #timer?: NodeJS.Timeout;
-  #running = false;
-
-  constructor(
-    readonly store: SlackStore,
-    readonly client: DatalayerHostClient,
-    readonly enqueue: (job: DeliveryJob) => Promise<void>,
-    readonly logger: Pick<Console, "warn"> = console,
-  ) {}
-
-  async pollOnce(): Promise<number> {
-    let queued = 0;
-    for (const installation of await this.store.listBoundInstallations()) {
-      if (!installation.datalayerHostKey || !installation.datalayerHostUid)
-        continue;
-      try {
-        for (const delivery of await this.client.outbox(
-          installation.datalayerHostKey,
-        )) {
-          await this.enqueue({
-            delivery,
-            hostUid: installation.datalayerHostUid,
-          });
-          queued += 1;
-        }
-      } catch (error) {
-        this.logger.warn(
-          `The outbox of one installation was not read: ${(error as Error).message}`,
-        );
-      }
-    }
-    return queued;
-  }
-
-  start(intervalSeconds: number): void {
-    if (intervalSeconds <= 0 || this.#timer) return;
-    this.#timer = setInterval(() => {
-      if (this.#running) return;
-      this.#running = true;
-      void this.pollOnce().finally(() => {
-        this.#running = false;
-      });
-    }, intervalSeconds * 1000);
-    this.#timer.unref();
-  }
-
-  stop(): void {
-    if (this.#timer) clearInterval(this.#timer);
-    this.#timer = undefined;
-  }
-}

@@ -3,11 +3,14 @@ import type {
   InstallationQuery,
   InstallationStore,
 } from "@slack/bolt";
+import type {
+  BoundHost,
+  EncryptedSecret,
+  SecretCipher,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { Pool } from "pg";
 
-import type { EncryptedSecret, SecretCipher } from "./crypto.js";
 import type { SlackInstallation, SlackInstallationKey } from "./domain.js";
-import type { BoundHost } from "./host-client.js";
 import type { HostInstallations } from "./host-installations.js";
 import { bindCodeOfInstallation } from "./oauth-state.js";
 import type { SlackStore } from "./store.js";

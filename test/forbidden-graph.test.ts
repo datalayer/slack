@@ -1,81 +1,73 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-// @ts-expect-error: a plain ES module script, without types.
-import * as graph from "../scripts/forbidden-graph.mjs";
+import { bundle } from "../scripts/bundle.js";
+import { forbiddenInSources } from "../scripts/forbidden-sources.js";
 
-type Lock = { packages: Record<string, unknown> };
-const {
-  forbiddenInGraph,
-  forbiddenInInstalled,
-  forbiddenInSources,
-  importsOf,
-  installedGraph,
-  productionGraph,
-} = graph as {
-  forbiddenInInstalled(tree: unknown): string[];
-  installedGraph(tree: unknown): Array<{ name: string; chain: string[] }>;
-  forbiddenInGraph(lock: Lock): string[];
-  forbiddenInSources(directory: string): Promise<string[]>;
-  importsOf(source: string): string[];
-  productionGraph(lock: Lock): Array<{ name: string; chain: string[] }>;
-};
-
-const read = (path: string) =>
-  JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as Lock;
-
-describe("the forbidden production graph (S-005)", () => {
-  it("fails when a forbidden package is reachable through a production dependency", () => {
-    expect(forbiddenInGraph(read("./fixtures/lock-with-jupyter.json"))).toEqual(
-      [
-        "@datalayer/agent-runtimes → @datalayer/jupyter-react",
-        "@datalayer/agent-runtimes → @datalayer/jupyter-react → @jupyterlab/services",
-        "@datalayer/agent-runtimes → @datalayer/jupyter-react → @lumino/widgets",
-      ],
+/**
+ * What the service runs is one esbuild bundle (plans/DISCORD.md §4.2,
+ * DC-004; SLACK S-005): its sources and agent-runtimes' `lib/portable`,
+ * nothing of Jupyter, React or another package; its dependencies external.
+ * Bundled here in memory (`write: false`): analysis, nothing written.
+ */
+describe("the bundle graph", () => {
+  it("bundles the sources and agent-runtimes' lib/portable/hosts only, and passes the gate", async () => {
+    const { metafile, violations } = await bundle(false);
+    expect(violations).toEqual([]);
+    const inputs = Object.keys(metafile.inputs);
+    const portable = inputs.filter((one) => one.includes("/lib/portable/"));
+    expect(portable.some((one) => one.includes("/lib/portable/hosts/"))).toBe(
+      true,
     );
-  });
-
-  it("does not count development dependencies", () => {
-    const names = productionGraph(
-      read("./fixtures/lock-with-jupyter.json"),
-    ).map((one) => one.name);
-    expect(names).not.toContain("vitest");
-    expect(names).not.toContain("react-dom");
-  });
-
-  it("fails on an installed graph (npm ls) that reaches a forbidden package", () => {
-    expect(
-      forbiddenInInstalled(read("./fixtures/npm-ls-with-jupyter.json")),
-    ).toEqual([
-      "@datalayer/agent-runtimes → @datalayer/jupyter-react",
-      "@datalayer/agent-runtimes → @datalayer/jupyter-react → @jupyterlab/services",
-      "@datalayer/agent-runtimes → @datalayer/jupyter-react → react-dom",
-    ]);
-  });
-
-  it("passes on this service's installed production graph", () => {
-    const tree = JSON.parse(
-      execFileSync("npm", ["ls", "--omit=dev", "--all", "--json"], {
-        cwd: new URL("..", import.meta.url),
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-      }),
-    ) as unknown;
-    expect(forbiddenInInstalled(tree)).toEqual([]);
-    const names = installedGraph(tree).map((one) => one.name);
-    expect(names).toContain("@slack/bolt");
-    expect(names).not.toContain("vitest");
-    // npm ls walks the whole monorepo from a workspace member: 7-9 s.
+    for (const input of inputs)
+      expect(
+        input.startsWith("src/") ||
+          input.startsWith("scripts/") ||
+          /agent-runtimes\/lib\/portable\//.test(input),
+        input,
+      ).toBe(true);
+    // Never the portable entry a phone takes, whose types reach Reactor.
+    expect(inputs.some((one) => one.endsWith("/lib/portable/index.js"))).toBe(
+      false,
+    );
   }, 60_000);
 
-  it("passes on this service's sources and reads every kind of import", async () => {
+  it("passes on this service's sources", async () => {
     await expect(forbiddenInSources("src")).resolves.toEqual([]);
-    expect(
-      importsOf(
-        'import x from "@lumino/widgets/lib/x";\nimport type { Y } from "react-dom/client";\nexport { z } from "./z.js";\nconst a = await import("@jupyterlab/services");',
-      ).sort(),
-    ).toEqual(["@jupyterlab/services", "@lumino/widgets", "react-dom"]);
+  });
+});
+
+/** What moved to the shared host kit (DC-004): no copy, no shim, left here. */
+const MOVED = [
+  "slackMayDecide",
+  "sseEvents",
+  "class DatalayerHostClient",
+  "class HttpAgentClient",
+  "class HostKeyCredentials",
+  "class PostgresWorkQueue",
+  "class MemoryWorkQueue",
+  "class SecretCipher",
+  "class DeadLetters",
+  "class DeliveryPoller",
+  "function deliveryRoute",
+  "function verifyDelivery",
+  "function renderApproval",
+  "function semanticOf",
+  "function answerParts",
+  "function quotaEntries",
+  "function readiness",
+  "function redact",
+  "export const presentationSchema",
+  "export const SEMANTIC_KINDS",
+];
+
+describe("the move to agent-runtimes' src/portable/hosts", () => {
+  it("leaves no moved export in this service", async () => {
+    for (const name of await readdir("src")) {
+      const source = await readFile(`src/${name}`, "utf8");
+      for (const moved of MOVED)
+        expect(source.includes(moved), `src/${name}: ${moved}`).toBe(false);
+    }
   });
 });

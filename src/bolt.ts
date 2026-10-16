@@ -9,6 +9,10 @@ import {
 } from "@slack/bolt";
 import type { KnownBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
+import type {
+  Tracer,
+  WorkQueue,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 import { BotTokens } from "./bot-tokens.js";
 import type { Config } from "./config.js";
@@ -30,7 +34,6 @@ import {
 } from "./approval-card.js";
 import { DECISION_WORDS, type DeliveryHandler } from "./deliveries.js";
 import { guardRequestTimestamps } from "./health.js";
-import type { Tracer } from "./observability.js";
 import {
   CONNECT_ACTION,
   DOCS_ACTION,
@@ -59,7 +62,6 @@ import {
   startBoundInstall,
   type SignedStateStore,
 } from "./oauth-state.js";
-import type { WorkQueue } from "./queue.js";
 import {
   isDirectChannel,
   isThreadKey,

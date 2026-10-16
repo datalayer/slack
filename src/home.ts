@@ -1,6 +1,7 @@
+import type { Starter } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { HomeView, KnownBlock } from "@slack/types";
 
-import type { SlackInstallationKey, Starter, StarterSource } from "./domain.js";
+import type { SlackInstallationKey, StarterSource } from "./domain.js";
 import { StoreLinks, type AccountLinks } from "./host-installations.js";
 import { bounded, escapeSlack } from "./presentation.js";
 import type { SlackStore } from "./store.js";

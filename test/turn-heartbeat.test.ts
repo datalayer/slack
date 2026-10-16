@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SlackAgentService } from "../src/service.js";
-import type { SemanticEvent } from "../src/semantic.js";
+import type { SemanticEvent } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { turnIsStale } from "../src/store.js";
 import {
   FakeAgents,

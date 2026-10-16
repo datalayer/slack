@@ -1,11 +1,12 @@
-import type { ThreadKey } from "./domain.js";
-import { escapeSlack, TurnPresentation } from "./presentation.js";
 import {
   systemClock,
   type Clock,
-  type SlackRateLimiter,
-} from "./rate-limit.js";
-import type { SemanticEvent } from "./semantic.js";
+  type SemanticEvent,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
+import type { ThreadKey } from "./domain.js";
+import { escapeSlack, TurnPresentation } from "./presentation.js";
+import type { SlackRateLimiter } from "./rate-limit.js";
 import type { SlackPort } from "./slack-port.js";
 
 /** How often a running answer is published, at most: never once per token. */

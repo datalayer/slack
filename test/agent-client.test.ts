@@ -8,15 +8,14 @@ import {
   HostStarters,
   HttpAgentClient,
   InstallationCredentials,
-  NOT_BOUND,
-  sessionUidOf,
-} from "../src/agent-client.js";
-import type { TurnRequest } from "../src/domain.js";
-import type { SemanticEvent } from "../src/semantic.js";
+  type SemanticEvent,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
 
-const contracts = JSON.parse(
-  readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
-) as {
+import { NOT_BOUND, sessionUidOf, slackShape } from "../src/agent-client.js";
+import type { TurnRequest } from "../src/domain.js";
+import { CONTRACTS_PATH } from "./support/contracts.js";
+
+const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
   exchange: {
     optional_request: Record<string, unknown>;
     request: Record<string, string>;
@@ -140,7 +139,8 @@ describe("Datalayer agent client", () => {
     const hostKey = async () => "dlhk_key";
     const client = new HttpAgentClient(
       API,
-      new HostKeyCredentials(API, hostKey, fetchImplementation),
+      new HostKeyCredentials(API, hostKey, slackShape, fetchImplementation),
+      slackShape,
       fetchImplementation,
       hostKey,
     );
@@ -220,7 +220,13 @@ describe("Datalayer agent client", () => {
     });
     const client = new HttpAgentClient(
       API,
-      new HostKeyCredentials(API, async () => "dlhk_key", fetchImplementation),
+      new HostKeyCredentials(
+        API,
+        async () => "dlhk_key",
+        slackShape,
+        fetchImplementation,
+      ),
+      slackShape,
       fetchImplementation,
     );
 
@@ -243,7 +249,13 @@ describe("Datalayer agent client", () => {
     });
     const client = new HttpAgentClient(
       API,
-      new HostKeyCredentials(API, async () => "dlhk_key", fetchImplementation),
+      new HostKeyCredentials(
+        API,
+        async () => "dlhk_key",
+        slackShape,
+        fetchImplementation,
+      ),
+      slackShape,
       fetchImplementation,
     );
     await expect(client.startTurn(request)).rejects.toThrow(/403/);
@@ -255,6 +267,7 @@ describe("Datalayer agent client", () => {
     const unbound = new HostKeyCredentials(
       API,
       async () => undefined,
+      slackShape,
       fetchImplementation,
     );
     await expect(
@@ -289,6 +302,7 @@ describe("an application's starters (S-104)", () => {
     const keyed = new HostKeyCredentials(
       API,
       async () => "dlhk_key",
+      slackShape,
       fetchImplementation,
     );
     const source = new HostStarters(
@@ -334,7 +348,11 @@ describe("an application's starters (S-104)", () => {
   });
 
   it("refuses a workspace never bound", async () => {
-    const keyed = new HostKeyCredentials(API, async () => undefined);
+    const keyed = new HostKeyCredentials(
+      API,
+      async () => undefined,
+      slackShape,
+    );
     const source = new HostStarters(API, keyed, async () => undefined);
     await expect(
       source.startersOf(installation, "U0ALICE", "dep-1"),

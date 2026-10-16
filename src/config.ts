@@ -1,6 +1,5 @@
+import { DELIVERY_PATH } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { z } from "zod";
-
-import { DELIVERY_PATH } from "./deliveries.js";
 
 const optionalSecret = z.string().min(1).optional();
 
