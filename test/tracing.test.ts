@@ -123,9 +123,9 @@ describe("Spans exported to the plane's collector (S-101)", () => {
     expect(kept.lines.join("\n")).toContain("tracing.export_refused");
 
     const down = new OtlpTracer(ENDPOINT, "otel-key", {
-      fetchImplementation: (async () => {
+      fetchImplementation: async () => {
         throw new Error("unreachable");
-      }) as typeof fetch,
+      },
       logger: kept.logger,
     });
     await expect(down.span("slack.turn", {}, async () => 7)).resolves.toBe(7);
