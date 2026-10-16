@@ -178,6 +178,21 @@
         {
           "type": "CUSTOM",
           "name": "loop.ask",
+          "value": { "kind": "signature", "prompt": "Sign here" }
+        }
+      ],
+      "semantic": [
+        {
+          "kind": "ask",
+          "question": { "kind": "form", "prompt": "Sign here" }
+        }
+      ]
+    },
+    {
+      "agui": [
+        {
+          "type": "CUSTOM",
+          "name": "loop.ask",
           "value": { "kind": "form", "prompt": "Your details", "schema": {} }
         }
       ],

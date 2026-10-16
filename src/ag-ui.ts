@@ -81,10 +81,15 @@ function resultRecord(content: unknown): Record<string, unknown> | undefined {
 /** The question a turn ends on (`RUN_FINISHED.result.asking`, `loop.ask`). */
 export function questionOf(value: unknown): AskQuestion | undefined {
   if (!isRecord(value) || typeof value.prompt !== "string") return undefined;
+  // A kind Slack does not know is answered in Datalayer, as a form (S-307):
+  // never guessed to be text (agent-runtimes' portable `questionOf` throws).
   const kind =
-    value.kind === "choice" || value.kind === "file" || value.kind === "form"
+    value.kind === "text" ||
+    value.kind === "choice" ||
+    value.kind === "file" ||
+    value.kind === "form"
       ? value.kind
-      : "text";
+      : "form";
   const options = Array.isArray(value.options)
     ? value.options.filter((one): one is string => typeof one === "string")
     : undefined;

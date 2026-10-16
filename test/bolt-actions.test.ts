@@ -213,6 +213,46 @@ describe("Use another application through the Bolt handlers (S-208)", () => {
     expect(slack.of("chat.postMessage").at(-1)?.message?.text).toContain(
       "started over",
     );
+    // The next mention opens a new generation: another session uid.
+    const archived = await store.getArchivedThreads(promptOf());
+    await service.handlePrompt(promptOf({ eventId: "Ev2" }), "B1");
+    const next = await store.getThread(promptOf());
+    expect(next?.sessionId).toBeDefined();
+    expect(next?.sessionId).not.toBe(archived[0]?.sessionId);
+  });
+
+  it("offers no direct-only application in a channel's selector, and offers it in a DM", async () => {
+    const store = await installedStore({
+      allow: [
+        ...allow,
+        { directOnly: true, id: "dep-3", name: "Private Desk" },
+      ],
+      defaultApplication: "dep-1",
+    });
+    const { press, service, slack } = boltOf(store);
+    for (const channelId of ["C1", "D1"]) {
+      await service.handlePrompt(
+        promptOf({ channelId, eventId: `Ev-${channelId}` }),
+        "B1",
+      );
+      await press({
+        actions: [
+          {
+            action_id: THREAD_MENU_ACTION,
+            action_ts: `9.${channelId}`,
+            selected_option: { value: USE_ANOTHER },
+            type: "overflow",
+          },
+        ],
+        channel: { id: channelId },
+        message: { thread_ts: "1.0", ts: "2.0" },
+        user: { id: "U1", team_id: "T1" },
+      });
+      const offered = JSON.stringify(slack.of("private").at(-1)?.message);
+      expect(offered).toContain("Desk");
+      if (channelId === "C1") expect(offered).not.toContain("dep-3");
+      else expect(offered).toContain("dep-3");
+    }
   });
 });
 
