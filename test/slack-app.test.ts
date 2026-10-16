@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   apply,
   createdEntries,
+  deployEntries,
   exportOf,
   rotate,
   SlackApiError,
@@ -112,5 +113,28 @@ describe("the rc", () => {
       "DATALAYER_SLACK_STAGING_CLIENT_SECRET",
       "DATALAYER_SLACK_STAGING_SIGNING_SECRET",
     ]);
+  });
+});
+
+describe("deploying an app to the chart", () => {
+  const credentials = { client_id: "1.2", client_secret: "cs", signing_secret: "ss" };
+
+  it("takes a created app's secrets for the Secret and its ids for the r1 rc", () => {
+    expect(deployEntries("staging", "", "A9", credentials)).toEqual({
+      secret: { SLACK_SIGNING_SECRET: "ss", SLACK_CLIENT_SECRET: "cs" },
+      ids: { SLACK_APP_ID: "A9", SLACK_CLIENT_ID: "1.2" },
+    });
+  });
+
+  it("takes an updated app's from what the rc saved at its creation", () => {
+    const rc = withExports("", createdEntries("staging", "A9", credentials));
+    expect(deployEntries("staging", rc, "A9")).toEqual(deployEntries("staging", "", "A9", credentials));
+  });
+
+  it("fails naming what the rc lacks, never another environment's", () => {
+    const rc = withExports("", createdEntries("development", "A1", credentials));
+    expect(() => deployEntries("staging", rc, "A9")).toThrow(
+      "DATALAYER_SLACK_STAGING_CLIENT_ID, DATALAYER_SLACK_STAGING_CLIENT_SECRET, DATALAYER_SLACK_STAGING_SIGNING_SECRET not in the rc",
+    );
   });
 });

@@ -14,12 +14,17 @@ import { ENVIRONMENT_NAMES, type EnvironmentName, validate } from "./manifest.js
  * access token lives 12 hours and every rotation spends the refresh token, so
  * each run rotates first and writes both back. On create, Slack answers the
  * app's credentials once: the ids and the secrets go to the rc as
- * DATALAYER_SLACK_<ENV>_*, and with --k8s-secret the signing and client
- * secrets also go to the Secret the chart created. Nothing secret is printed.
+ * DATALAYER_SLACK_<ENV>_*. With --k8s-secret, the app the service on r1
+ * runs as (just created, or saved in the rc earlier) is deployed: its signing
+ * and client secrets go to the Secret the chart created, and its two
+ * non-secret ids to the r1 rc as SLACK_APP_ID and SLACK_CLIENT_ID, which
+ * up.sh's datalayer_slack passes to the chart. Nothing secret is printed.
  */
 
 export const SLACK_API = "https://slack.com/api";
 export const RC_DEFAULT = `${homedir()}/.datalayer/datalayerrc-prod1`;
+/** The rc `p reup datalayer-slack` runs under (r1). */
+export const DEPLOY_RC_DEFAULT = `${homedir()}/.datalayer/datalayerrc-r1`;
 
 export type Fetch = typeof fetch;
 
@@ -121,6 +126,36 @@ export function createdEntries(
   };
 }
 
+/**
+ * What deploying an app to the chart writes: its secrets for the Secret and
+ * its ids for the r1 rc. From the create answer, else from what the rc saved
+ * when the app was created; fails naming what is missing.
+ */
+export function deployEntries(
+  env: EnvironmentName,
+  rc: string,
+  appId: string,
+  credentials?: Credentials,
+): { secret: Record<string, string>; ids: Record<string, string> } {
+  const key = envKey(env);
+  const clientId = credentials?.client_id ?? exportOf(rc, `${key}_CLIENT_ID`);
+  const clientSecret = credentials?.client_secret ?? exportOf(rc, `${key}_CLIENT_SECRET`);
+  const signingSecret = credentials?.signing_secret ?? exportOf(rc, `${key}_SIGNING_SECRET`);
+  const missing = [
+    ["CLIENT_ID", clientId],
+    ["CLIENT_SECRET", clientSecret],
+    ["SIGNING_SECRET", signingSecret],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => `${key}_${name}`);
+  if (missing.length || !clientId || !clientSecret || !signingSecret)
+    throw new Error(`${missing.join(", ")} not in the rc: Slack answers them only when it creates the app.`);
+  return {
+    secret: { SLACK_SIGNING_SECRET: signingSecret, SLACK_CLIENT_SECRET: clientSecret },
+    ids: { SLACK_APP_ID: appId, SLACK_CLIENT_ID: clientId },
+  };
+}
+
 export type Outcome = {
   env: EnvironmentName;
   appId: string;
@@ -193,6 +228,7 @@ async function main(argv: string[]): Promise<void> {
   if (k8sIndex >= 0 && !k8sTarget?.includes("/"))
     throw new Error("--k8s-secret takes namespace/name, e.g. datalayer-api/datalayer-slack-env");
   const rcPath = process.env.DATALAYER_SLACK_RC ?? RC_DEFAULT;
+  const deployRcPath = process.env.DATALAYER_SLACK_DEPLOY_RC ?? DEPLOY_RC_DEFAULT;
 
   let rc = await readFile(rcPath, "utf8");
   const refresh = exportOf(rc, "DATALAYER_SLACK_CONFIG_REFRESH_TOKEN");
@@ -213,19 +249,17 @@ async function main(argv: string[]): Promise<void> {
     rc = withExports(rc, createdEntries(env, outcome.appId, outcome.credentials));
     await writeRc(rcPath, rc);
     console.log(`Created ${env} app ${outcome.appId}; ids and secrets saved to the rc as ${envKey(env)}_*.`);
-    if (k8sTarget) {
-      const [namespace, name] = k8sTarget.split("/");
-      await patchSecret(namespace, name, {
-        SLACK_SIGNING_SECRET: outcome.credentials.signing_secret,
-        SLACK_CLIENT_SECRET: outcome.credentials.client_secret,
-      });
-      console.log(`Signing and client secrets written to the Secret ${k8sTarget}.`);
-    }
     if (outcome.authorizeUrl) console.log(`Install: ${outcome.authorizeUrl}`);
   } else {
     console.log(`Updated ${env} app ${outcome.appId} from manifests/${env}.yaml.`);
-    if (k8sTarget)
-      console.log("Slack answers credentials only at creation: the Secret is left as it is.");
+  }
+  if (k8sTarget) {
+    const deploy = deployEntries(env, rc, outcome.appId, outcome.credentials);
+    const [namespace, name] = k8sTarget.split("/");
+    await patchSecret(namespace, name, deploy.secret);
+    console.log(`Signing and client secrets written to the Secret ${k8sTarget}.`);
+    await writeRc(deployRcPath, withExports(await readFile(deployRcPath, "utf8"), deploy.ids));
+    console.log(`SLACK_APP_ID and SLACK_CLIENT_ID of ${outcome.appId} saved to ${deployRcPath}.`);
   }
 }
 
