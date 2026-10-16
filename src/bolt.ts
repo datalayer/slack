@@ -200,7 +200,7 @@ export class BoltSlackPort implements SlackPort {
       user: userId,
     });
     if (!response.user) throw new Error("Slack did not return the member.");
-    return slackMemberOf(response.user, key.teamId);
+    return slackMemberOf(response.user, key);
   }
 
   async suggestPrompts(

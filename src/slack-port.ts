@@ -27,8 +27,23 @@ export interface SlackStreaming {
 export type SlackMember = Readonly<{
   /** A single- or multi-channel guest (`is_restricted`, `is_ultra_restricted`). */
   guest: boolean;
-  /** A person of another organization (`is_stranger`, or another home team). */
+  /**
+   * A person of another organization (`is_stranger`, or another home team
+   * outside the installation's Enterprise Grid organization).
+   */
   external: boolean;
+  /** Deactivated in Slack (`deleted`): unlinked and answered nothing (S-103). */
+  deactivated: boolean;
+}>;
+
+/** The fields of Slack's `users.info` user that @Datalayer reads. */
+export type SlackUserInfo = Readonly<{
+  deleted?: boolean;
+  is_restricted?: boolean;
+  is_ultra_restricted?: boolean;
+  is_stranger?: boolean;
+  team_id?: string;
+  enterprise_user?: Readonly<{ enterprise_id?: string }>;
 }>;
 
 /** One of the DM's suggested prompts (`assistant.threads.setSuggestedPrompts`, S-104). */
@@ -86,22 +101,23 @@ export const isDirectChannel = (channelId: string): boolean =>
   channelId.startsWith("D");
 
 /**
- * What `users.info` says of a member, read as @Datalayer decides it: Slack's
- * flags, and a home team other than the installation's (§8).
+ * What `users.info` says of a member, read as @Datalayer decides it (§8):
+ * Slack's flags, and a home team other than the installation's. In an
+ * Enterprise Grid organization a member of another of its workspaces has
+ * another `team_id` but the installation's enterprise id: not external.
  */
 export function slackMemberOf(
-  user: Readonly<{
-    is_restricted?: boolean;
-    is_ultra_restricted?: boolean;
-    is_stranger?: boolean;
-    team_id?: string;
-  }>,
-  teamId: string,
+  user: SlackUserInfo,
+  key: Pick<SlackInstallationKey, "enterpriseId" | "teamId">,
 ): SlackMember {
+  const homeElsewhere =
+    typeof user.team_id === "string" && user.team_id !== key.teamId;
+  const sameEnterprise =
+    key.enterpriseId !== undefined &&
+    user.enterprise_user?.enterprise_id === key.enterpriseId;
   return {
-    external:
-      user.is_stranger === true ||
-      (typeof user.team_id === "string" && user.team_id !== teamId),
+    deactivated: user.deleted === true,
+    external: user.is_stranger === true || (homeElsewhere && !sameEnterprise),
     guest: user.is_restricted === true || user.is_ultra_restricted === true,
   };
 }

@@ -6,7 +6,7 @@ import {
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { OPEN_ACTION, STOP_ACTION } from "../src/presentation.js";
 import { SlackAgentService, type StopValue } from "../src/service.js";
-import type { MemorySlackStore } from "../src/store.js";
+import { MemorySlackStore } from "../src/store.js";
 import {
   FakeAgents,
   FakeClock,
@@ -166,8 +166,16 @@ describe("resolving a Slack message to a person and an application (S-202)", () 
   it("refuses guests and people of another organization by default, offering them no link (S-209)", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
     const slack = new FakeSlack();
-    slack.members.set("U1", { external: false, guest: true });
-    slack.members.set("U2", { external: true, guest: false });
+    slack.members.set("U1", {
+      deactivated: false,
+      external: false,
+      guest: true,
+    });
+    slack.members.set("U2", {
+      deactivated: false,
+      external: true,
+      guest: false,
+    });
     const links = new FakeLinks(
       new Map([
         ["U1", "alice"],
@@ -192,6 +200,62 @@ describe("resolving a Slack message to a person and an application (S-202)", () 
     expect(slack.lookedUp).toEqual(["U1", "U2"]);
     expect(run.agents.requests).toHaveLength(0);
     expect(run.lines.join("\n")).toMatch(/"reason":"guest"/);
+    expect(run.lines.join("\n")).toMatch(/"reason":"external"/);
+  });
+
+  it("unlinks a person Slack says is deactivated, says nothing and runs nothing (S-103)", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack();
+    slack.members.set("U1", {
+      deactivated: true,
+      external: false,
+      guest: false,
+    });
+    const run = serviceOf(store, new FakeAgents(), slack);
+    await run.service.handlePrompt(promptOf(), "B1");
+    expect(run.links.unlinked).toEqual(["U1"]);
+    expect(run.slack.calls).toHaveLength(0);
+    expect(run.agents.requests).toHaveLength(0);
+    const logged = run.lines.join("\n");
+    expect(logged).toMatch(/"identity.unlinked"[^\n]*"reason":"deleted"/);
+    expect(logged).toMatch(/"identity.refused"[^\n]*"reason":"deactivated"/);
+  });
+
+  it("answers a member of another workspace of the installation's Enterprise Grid organization (S-209)", async () => {
+    const grid = { appId: "A1", enterpriseId: "E1", teamId: "T1" };
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      ...grid,
+      botToken: "xoxb-test",
+      botUserId: "B1",
+      installedBy: "U0",
+      scopes: ["app_mentions:read", "chat:write", "im:history"],
+      status: "active",
+      updatedAt: new Date(0).toISOString(),
+    });
+    await store.setDefaultApplication(grid, "dep-1");
+    const slack = new FakeSlack();
+    const run = serviceOf(store, new FakeAgents(), slack);
+    await run.service.handlePrompt(
+      promptOf({ ...grid, userTeamId: "T2" }),
+      "B1",
+    );
+    expect(slack.lookedUp).toEqual(["U1"]);
+    expect(run.agents.requests).toHaveLength(1);
+    // users.info decides: another organization is still refused.
+    slack.members.set("U1", {
+      deactivated: false,
+      external: true,
+      guest: false,
+    });
+    await run.service.handlePrompt(
+      promptOf({ ...grid, eventId: "Ev2", threadTs: "2.0", userTeamId: "T8" }),
+      "B1",
+    );
+    expect(run.agents.requests).toHaveLength(1);
+    expect(texts(run.slack, "private").at(-1)).toContain(
+      "people of another organization",
+    );
   });
 
   it("answers a full member after asking Slack who they are, and fails the turn when Slack cannot say", async () => {
@@ -362,6 +426,15 @@ describe("turns: serialization, Stop, duplicates and crashes (S-207)", () => {
     ).resolves.toBe("not-running");
     await expect(run.service.stop(promptOf(), value, "U9")).resolves.toBe(
       "not-linked",
+    );
+    // A guest is offered no link to stop it either (S-209).
+    run.slack.members.set("U8", {
+      deactivated: false,
+      external: false,
+      guest: true,
+    });
+    await expect(run.service.stop(promptOf(), value, "U8")).resolves.toBe(
+      "not-a-member",
     );
     await expect(run.service.stop(promptOf(), value, "U1")).resolves.toBe(
       "stopped",

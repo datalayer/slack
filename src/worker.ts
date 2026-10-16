@@ -122,7 +122,7 @@ export class SlackWorker {
     // A guest or a person of another organization is offered nothing, not
     // even a link (S-209).
     const member = await this.service.slack.memberOf(key, userId);
-    if (member.guest || member.external) {
+    if (member.guest || member.external || member.deactivated) {
       await this.parts.publishHome?.(key, userId, {
         type: "home",
         blocks: [
@@ -168,7 +168,7 @@ export class SlackWorker {
     const installation = await this.store.getInstallation(thread);
     if (!installation || installation.status !== "active") return;
     const member = await this.service.slack.memberOf(thread, userId);
-    if (member.guest || member.external) return;
+    if (member.guest || member.external || member.deactivated) return;
     if (!(await this.service.links.linkOf(thread, userId))) return;
     const [applicationId, allowances] = await Promise.all([
       this.store.getDefaultApplication(thread),
@@ -346,6 +346,10 @@ export class SlackWorker {
     if (outcome === "not-running")
       await this.service.privately(thread, slackUserId, {
         text: "That answer is not running any more.",
+      });
+    if (outcome === "not-a-member")
+      await this.service.privately(thread, slackUserId, {
+        text: NOT_A_MEMBER_HOME,
       });
     if (outcome === "not-linked")
       await this.service.privately(thread, slackUserId, {

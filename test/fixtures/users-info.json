@@ -1,0 +1,120 @@
+{
+  "_comment": "users.info answers as Slack documents them (https://docs.slack.dev/reference/methods/users.info), trimmed to the fields @Datalayer reads plus their neighbours; ids are made up. S-103, S-209.",
+  "full_member": {
+    "ok": true,
+    "user": {
+      "id": "U01FULL",
+      "team_id": "T1",
+      "name": "alice",
+      "deleted": false,
+      "is_admin": false,
+      "is_owner": false,
+      "is_bot": false,
+      "is_app_user": false,
+      "is_restricted": false,
+      "is_ultra_restricted": false,
+      "updated": 1792150000
+    }
+  },
+  "multi_channel_guest": {
+    "ok": true,
+    "user": {
+      "id": "U02MCG",
+      "team_id": "T1",
+      "name": "bob",
+      "deleted": false,
+      "is_bot": false,
+      "is_restricted": true,
+      "is_ultra_restricted": false
+    }
+  },
+  "single_channel_guest": {
+    "ok": true,
+    "user": {
+      "id": "U03SCG",
+      "team_id": "T1",
+      "name": "carol",
+      "deleted": false,
+      "is_bot": false,
+      "is_restricted": true,
+      "is_ultra_restricted": true
+    }
+  },
+  "slack_connect_stranger": {
+    "ok": true,
+    "user": {
+      "id": "U04EXT",
+      "team_id": "T9",
+      "name": "dave",
+      "deleted": false,
+      "is_bot": false,
+      "is_restricted": false,
+      "is_ultra_restricted": false,
+      "is_stranger": true
+    }
+  },
+  "other_home_team": {
+    "ok": true,
+    "user": {
+      "id": "U05OTH",
+      "team_id": "T9",
+      "name": "erin",
+      "deleted": false,
+      "is_bot": false,
+      "is_restricted": false,
+      "is_ultra_restricted": false
+    }
+  },
+  "grid_member_of_another_workspace": {
+    "ok": true,
+    "user": {
+      "id": "W06GRID",
+      "team_id": "T2",
+      "name": "frank",
+      "deleted": false,
+      "is_bot": false,
+      "is_restricted": false,
+      "is_ultra_restricted": false,
+      "enterprise_user": {
+        "id": "W06GRID",
+        "enterprise_id": "E1",
+        "enterprise_name": "Example Org",
+        "is_admin": false,
+        "is_owner": false,
+        "teams": ["T1", "T2"]
+      }
+    }
+  },
+  "grid_member_of_another_organization": {
+    "ok": true,
+    "user": {
+      "id": "W07OUT",
+      "team_id": "T8",
+      "name": "grace",
+      "deleted": false,
+      "is_bot": false,
+      "is_restricted": false,
+      "is_ultra_restricted": false,
+      "enterprise_user": {
+        "id": "W07OUT",
+        "enterprise_id": "E9",
+        "enterprise_name": "Other Org",
+        "is_admin": false,
+        "is_owner": false,
+        "teams": ["T8"]
+      }
+    }
+  },
+  "deactivated": {
+    "ok": true,
+    "user": {
+      "id": "U08GONE",
+      "team_id": "T1",
+      "name": "heidi",
+      "deleted": true,
+      "is_bot": false,
+      "is_restricted": false,
+      "is_ultra_restricted": false
+    }
+  }
+}

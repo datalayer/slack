@@ -111,7 +111,7 @@ class FakeSlack implements SlackPort {
     this.updates.push({ channelId: key.channelId, message, ts });
   }
   async memberOf() {
-    return { external: false, guest: false };
+    return { deactivated: false, external: false, guest: false };
   }
   async suggestPrompts() {}
 }

@@ -36,6 +36,7 @@ export type Refusal =
   | "not-installed"
   | "external"
   | "guest"
+  | "deactivated"
   | "not-linked"
   | "channel-denied"
   | "not-allowed"
@@ -91,7 +92,11 @@ export class TurnRouting {
     // so v1 fails closed (§8).
     if (
       prompt.isExtShared ||
-      (prompt.userTeamId && prompt.userTeamId !== prompt.teamId)
+      // In an Enterprise Grid organization, a member of another of its
+      // workspaces has another home team: users.info's enterprise id decides.
+      (prompt.userTeamId &&
+        prompt.userTeamId !== prompt.teamId &&
+        prompt.enterpriseId === undefined)
     )
       return {
         ok: false,
@@ -105,6 +110,8 @@ export class TurnRouting {
     // are refused by default (S-209, decided by the user 16 October 2026),
     // before anything is offered to them, a link included.
     const member = await this.members.memberOf(key, prompt.userId);
+    // Deactivated in Slack: nothing is said, and the service unlinks (S-103).
+    if (member.deactivated) return { ok: false, refusal: "deactivated" };
     if (member.external)
       return {
         ok: false,

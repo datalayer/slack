@@ -148,6 +148,15 @@ export class SlackAgentService {
     const resolution = await this.routing.resolve(prompt);
     if (!resolution.ok) {
       if (resolution.refusal === "not-installed") return; // late work is dropped
+      if (resolution.refusal === "deactivated") {
+        // Slack says the person is deactivated: their link ends (S-103).
+        await this.links.unlink?.(prompt, prompt.userId);
+        this.logger.audit("identity.unlinked", {
+          installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
+          reason: "deleted",
+          user: prompt.userId,
+        });
+      }
       if (resolution.refusal === "no-application" && resolution.message?.blocks)
         await this.store.holdPrompt(prompt);
       this.#refused(prompt, resolution.refusal);
@@ -371,7 +380,7 @@ export class SlackAgentService {
     thread: ThreadKey,
     value: StopValue,
     slackUserId: string,
-  ): Promise<"stopped" | "not-running" | "not-linked"> {
+  ): Promise<"stopped" | "not-running" | "not-a-member" | "not-linked"> {
     const turn = await this.store.getTurn(thread);
     if (
       !turn ||
@@ -381,6 +390,11 @@ export class SlackAgentService {
       (value.r !== undefined && turn.runId !== value.r)
     )
       return "not-running";
+    // A guest, a person of another organization or a deactivated member is
+    // offered no link, here either (S-209).
+    const member = await this.slack.memberOf(thread, slackUserId);
+    if (member.guest || member.external || member.deactivated)
+      return "not-a-member";
     const link = await this.links.linkOf(thread, slackUserId);
     if (!link) return "not-linked";
     const binding = await this.store.getThread(thread);

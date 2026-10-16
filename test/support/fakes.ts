@@ -141,7 +141,13 @@ export class FakeSlack implements SlackPort {
   ): Promise<SlackMember> {
     this.#maybeFail("users.info");
     this.lookedUp.push(userId);
-    return this.members.get(userId) ?? { external: false, guest: false };
+    return (
+      this.members.get(userId) ?? {
+        deactivated: false,
+        external: false,
+        guest: false,
+      }
+    );
   }
 
   async suggestPrompts(

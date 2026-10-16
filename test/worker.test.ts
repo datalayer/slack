@@ -413,7 +413,11 @@ describe("the direct message's suggested prompts and guests' Home (S-104, S-209)
   it("suggests nothing to a guest, someone not connected, or with no default for direct messages", async () => {
     const store = await installedStore({ allow, defaultApplication: "dep-1" });
     const run = assistantOf(store, async () => five);
-    run.slack.members.set("U1", { external: false, guest: true });
+    run.slack.members.set("U1", {
+      deactivated: false,
+      external: false,
+      guest: true,
+    });
     await run.worker.assistant(thread, "U1");
     await run.worker.assistant(thread, "U9"); // not linked
     expect(run.asked).toEqual([]);
@@ -441,10 +445,53 @@ describe("the direct message's suggested prompts and guests' Home (S-104, S-209)
   it("shows a guest or a person of another organization a Home with no link", async () => {
     const store = await installedStore({ allow, defaultApplication: "dep-1" });
     const run = assistantOf(store, async () => five);
-    run.slack.members.set("U1", { external: true, guest: false });
+    run.slack.members.set("U1", {
+      deactivated: false,
+      external: true,
+      guest: false,
+    });
     await run.worker.home(installationKey, "U1");
     expect(JSON.stringify(run.homes)).toContain(NOT_A_MEMBER_HOME);
     expect(JSON.stringify(run.homes)).not.toContain("hosts/link");
     expect(run.asked).toEqual([]);
+  });
+
+  it("shows a guest the same Home with no link, and a deactivated member too (S-103, S-209)", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const run = assistantOf(store, async () => five);
+    run.slack.members.set("U1", {
+      deactivated: false,
+      external: false,
+      guest: true,
+    });
+    run.slack.members.set("U2", {
+      deactivated: true,
+      external: false,
+      guest: false,
+    });
+    await run.worker.home(installationKey, "U1");
+    await run.worker.home(installationKey, "U2");
+    expect(run.homes).toHaveLength(2);
+    for (const home of run.homes) {
+      expect(JSON.stringify(home)).toContain(NOT_A_MEMBER_HOME);
+      expect(JSON.stringify(home)).not.toContain("hosts/link");
+    }
+    expect(run.asked).toEqual([]);
+  });
+
+  it("answers a guest's Stop with the sentence, never the connect link (S-209)", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const run = assistantOf(store, async () => five);
+    await store.beginTurn(thread, "Ev1", new Date(0), 60_000);
+    await store.updateTurn(thread, "Ev1", { sessionId: "S1" });
+    run.slack.members.set("U7", {
+      deactivated: false,
+      external: false,
+      guest: true,
+    });
+    await run.worker.stop(thread, { e: "Ev1", s: "S1" }, "U7");
+    const said = JSON.stringify(run.slack.of("private"));
+    expect(said).toContain(NOT_A_MEMBER_HOME);
+    expect(said).not.toContain("Connect your Datalayer account");
   });
 });
