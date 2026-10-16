@@ -20,6 +20,8 @@ export type RenderOptions = Readonly<{
   askValue?: string;
   /** The message to keep updating: a recovered turn resumes its own. */
   messageTs?: string;
+  /** quiet (one status line) or noisy (every tool listed): the installation's event policy (S-308). */
+  events?: "quiet" | "noisy";
   cadenceMs?: number;
   clock?: Clock;
 }>;
@@ -100,6 +102,8 @@ export class TurnRenderer {
       await this.#flushStream();
       const final = this.presentation.message(this.options.openUrl, {
         askValue: this.options.askValue,
+        direct: this.key.channelId.startsWith("D"),
+        events: this.options.events,
         threadMenu: true,
       });
       await this.limiter.run("chat.stopStream", this.key.channelId, () =>
@@ -143,6 +147,8 @@ export class TurnRenderer {
   #message() {
     return this.presentation.message(this.options.openUrl, {
       threadMenu: true,
+      direct: this.key.channelId.startsWith("D"),
+      events: this.options.events,
       askValue: this.options.askValue,
       runId: this.runId,
       stopValue: this.stopValue,

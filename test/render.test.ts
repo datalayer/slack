@@ -238,3 +238,60 @@ describe("Slack-safe messages (S-206, S-306)", () => {
     expect(handed).not.toContain("datalayer_ask_choice");
   });
 });
+
+describe("questions and the event policy (S-307, S-308)", () => {
+  it("asks a text question by reply in a direct message, by mention in a channel", () => {
+    const asking = new TurnPresentation();
+    asking.apply({
+      kind: "ask",
+      question: { kind: "text", prompt: "Which quarter?" },
+    });
+    expect(
+      JSON.stringify(asking.message(OPEN, { direct: true }).blocks),
+    ).toContain("Reply in this thread to answer.");
+    expect(
+      JSON.stringify(asking.message(OPEN, { direct: false }).blocks),
+    ).toContain("Answer in this thread by mentioning @Datalayer");
+    expect(asking.message(OPEN).text).toBe("Which quarter?");
+  });
+
+  it("hands a choice of more than five answers to Datalayer", () => {
+    const many = new TurnPresentation();
+    many.apply({
+      kind: "ask",
+      question: {
+        kind: "choice",
+        options: ["1", "2", "3", "4", "5", "6"],
+        prompt: "Which?",
+      },
+    });
+    const blocks = JSON.stringify(
+      many.message(OPEN, { askValue: "Ev1" }).blocks,
+    );
+    expect(blocks).not.toContain("datalayer_ask_choice");
+    expect(blocks).toContain("Answer in Datalayer");
+  });
+
+  it("keeps routine tool events to one status line unless the policy is noisy", () => {
+    const turn = new TurnPresentation();
+    turn.apply({ kind: "tool", id: "c1", name: "search", status: "complete" });
+    turn.apply({ kind: "tool", id: "c2", name: "read_file", status: "failed" });
+    turn.apply({
+      kind: "tool",
+      id: "c3",
+      name: "summarize",
+      status: "running",
+    });
+    const quiet = JSON.stringify(
+      turn.message(OPEN, { events: "quiet" }).blocks,
+    );
+    expect(quiet).toContain("Using summarize");
+    expect(quiet).not.toContain("✓ search");
+    const noisy = JSON.stringify(
+      turn.message(OPEN, { events: "noisy" }).blocks,
+    );
+    expect(noisy).toContain("✓ search");
+    expect(noisy).toContain("✗ read_file");
+    expect(noisy).toContain("⏳ summarize");
+  });
+});

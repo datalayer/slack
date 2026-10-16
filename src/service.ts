@@ -8,6 +8,14 @@ import type {
   TurnRequest,
 } from "./domain.js";
 import { Logger } from "./observability.js";
+import {
+  DEFAULT_QUOTAS,
+  quotaEntries,
+  quotaWords,
+  resetOf,
+  windowOf,
+  type QuotaLimits,
+} from "./quotas.js";
 import { stripAppMention } from "./presentation.js";
 import { SlackRateLimiter, systemClock, type Clock } from "./rate-limit.js";
 import { TurnRenderer } from "./render.js";
@@ -42,6 +50,10 @@ export type ServiceOptions = Readonly<{
   cadenceMs?: number;
   staleAfterMs?: number;
   resumeAfterMs?: number;
+  /** Questions an hour per person, workspace, organization and application (S-404). */
+  quotas?: QuotaLimits;
+  /** quiet (one status line) or noisy (every tool listed) answers (S-308). */
+  events?: "quiet" | "noisy";
   /** Where *Open in Datalayer* goes for a session: a one-use handoff when Datalayer answers one. */
   openUrlOf?: (sessionId: string, request: TurnRequest) => Promise<string>;
 }>;
@@ -100,7 +112,10 @@ export class SlackAgentService {
     }
   }
 
-  #refused(prompt: IncomingPrompt, refusal: Refusal | "busy" | "empty"): void {
+  #refused(
+    prompt: IncomingPrompt,
+    refusal: Refusal | "busy" | "empty" | "quota",
+  ): void {
     this.logger.audit("identity.refused", {
       installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
       reason: refusal,
@@ -154,6 +169,34 @@ export class SlackAgentService {
       return;
     }
 
+    // Quotas before any costly work; a resumed turn was counted already.
+    if (claim.outcome === "started") {
+      const installation = await this.store.getInstallation(prompt);
+      const limits = this.options.quotas ?? DEFAULT_QUOTAS;
+      const taken = await this.store.takeQuota(
+        quotaEntries(limits, {
+          applicationId: resolved.applicationId,
+          installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
+          organizationId: installation?.datalayerOrganizationId,
+          slackUserId: prompt.userId,
+        }),
+        windowOf(now),
+      );
+      if (!taken.ok) {
+        await this.store.endTurn(prompt, prompt.eventId);
+        this.#refused(prompt, "quota");
+        await this.privately(prompt, prompt.userId, {
+          text: quotaWords({
+            limit: taken.entry.limit,
+            ok: false,
+            resetsAt: resetOf(now),
+            scope: taken.entry.scope,
+          }),
+        });
+        return;
+      }
+    }
+
     const request: TurnRequest = {
       applicationId: resolved.applicationId,
       externalEventId: prompt.eventId,
@@ -199,6 +242,7 @@ export class SlackAgentService {
     const renderer = new TurnRenderer(this.slack, this.limiter, prompt, {
       askValue: prompt.eventId,
       cadenceMs: this.options.cadenceMs,
+      events: this.options.events,
       clock: this.#clock,
       messageTs: claim.turn.messageTs,
       openUrl,

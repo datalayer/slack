@@ -48,6 +48,25 @@ const schema = z
       .int()
       .nonnegative()
       .default(30),
+    /** Questions an hour (S-404): per person, workspace, organization, application. */
+    DATALAYER_SLACK_QUOTA_USER: z.coerce.number().int().positive().default(60),
+    DATALAYER_SLACK_QUOTA_WORKSPACE: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(600),
+    DATALAYER_SLACK_QUOTA_ORGANIZATION: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(2_000),
+    DATALAYER_SLACK_QUOTA_APPLICATION: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(600),
+    /** quiet: one status line while a turn works; noisy: every tool it used, listed (S-308). */
+    DATALAYER_SLACK_EVENTS: z.enum(["quiet", "noisy"]).default("quiet"),
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,
     DATALAYER_DEV_SLACK_USER_ID: optionalSecret,
     SLACK_APP_ID: optionalSecret,

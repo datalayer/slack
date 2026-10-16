@@ -1,3 +1,4 @@
+import type { QuotaEntry } from "./quotas.js";
 import {
   type AppAllowance,
   type IncomingPrompt,
@@ -100,6 +101,16 @@ export interface SlackStore {
   setNextApplication(key: ThreadKey, applicationId: string): Promise<void>;
   getNextApplication(key: ThreadKey): Promise<string | undefined>;
   clearNextApplication(key: ThreadKey): Promise<void>;
+  /**
+   * Take one of each quota for a window, all or none (S-404): refused when
+   * any is spent, naming the first spent.
+   */
+  takeQuota(
+    entries: readonly QuotaEntry[],
+    window: string,
+  ): Promise<{ ok: true } | { ok: false; entry: QuotaEntry }>;
+  /** How much of a quota is used in a window. */
+  quotaUsed(key: string, window: string): Promise<number>;
   /** Keep a prompt that waits for its person to choose an application. */
   holdPrompt(prompt: IncomingPrompt): Promise<void>;
   /** Take it back, once, for the same person only. */
@@ -135,6 +146,7 @@ export class MemorySlackStore implements SlackStore {
   readonly #finished = new Set<string>();
   readonly #held = new Map<string, IncomingPrompt>();
   readonly #next = new Map<string, string>();
+  readonly #usage = new Map<string, number>();
 
   async claimEvent(eventId: string): Promise<boolean> {
     if (this.#events.has(eventId)) return false;
@@ -389,5 +401,26 @@ export class MemorySlackStore implements SlackStore {
 
   async clearNextApplication(key: ThreadKey): Promise<void> {
     this.#next.delete(threadKey(key));
+  }
+
+  async takeQuota(
+    entries: readonly QuotaEntry[],
+    window: string,
+  ): Promise<{ ok: true } | { ok: false; entry: QuotaEntry }> {
+    const spent = entries.find(
+      (entry) =>
+        (this.#usage.get(`${window}:${entry.key}`) ?? 0) >= entry.limit,
+    );
+    if (spent) return { entry: spent, ok: false };
+    for (const entry of entries)
+      this.#usage.set(
+        `${window}:${entry.key}`,
+        (this.#usage.get(`${window}:${entry.key}`) ?? 0) + 1,
+      );
+    return { ok: true };
+  }
+
+  async quotaUsed(key: string, window: string): Promise<number> {
+    return this.#usage.get(`${window}:${key}`) ?? 0;
   }
 }

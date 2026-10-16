@@ -263,6 +263,10 @@ export class TurnPresentation {
       stopValue?: string;
       askValue?: string;
       threadMenu?: boolean;
+      /** A direct message: a plain reply reaches @Datalayer there; in a channel only a mention does. */
+      direct?: boolean;
+      /** quiet: one status line; noisy: every tool the turn used, listed (S-308). */
+      events?: "quiet" | "noisy";
     } = {},
   ): SlackMessage {
     const blocks: KnownBlock[] = [];
@@ -298,8 +302,28 @@ export class TurnPresentation {
           },
         ],
       });
+    if (options.events === "noisy" && this.#tools.size > 0)
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: bounded(
+              [...this.#tools.values()]
+                .map(
+                  (tool) =>
+                    `${tool.status === "running" ? "⏳" : tool.status === "failed" ? "✗" : "✓"} ${escapeSlack(tool.name)}`,
+                )
+                .join("  "),
+              SLACK_LIMITS.sectionText,
+            ),
+          },
+        ],
+      });
     if (this.#asking)
-      blocks.push(...askBlocks(this.#asking, openUrl, options.askValue));
+      blocks.push(
+        ...askBlocks(this.#asking, openUrl, options.askValue, options.direct),
+      );
     const status =
       this.#ended === "error"
         ? `Could not finish: ${this.#error ?? "the run failed"}`
@@ -405,6 +429,7 @@ function askBlocks(
   question: AskQuestion,
   openUrl: string,
   askValue?: string,
+  direct = false,
 ): KnownBlock[] {
   const prompt: KnownBlock = {
     type: "section",
@@ -418,7 +443,14 @@ function askBlocks(
       prompt,
       {
         type: "context",
-        elements: [{ type: "mrkdwn", text: "Reply in this thread to answer." }],
+        elements: [
+          {
+            type: "mrkdwn",
+            text: direct
+              ? "Reply in this thread to answer."
+              : "Answer in this thread by mentioning @Datalayer with your answer.",
+          },
+        ],
       },
     ];
   if (

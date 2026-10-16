@@ -5,6 +5,7 @@ import type {
   ThreadKey,
 } from "./domain.js";
 import { homeView } from "./home.js";
+import { DEFAULT_QUOTAS, windowOf } from "./quotas.js";
 import type { HostInstallations } from "./host-installations.js";
 import { escapeSlack } from "./presentation.js";
 import type { WorkQueue } from "./queue.js";
@@ -74,12 +75,18 @@ export class SlackWorker {
     const installation = await this.store.getInstallation(key);
     if (!installation || installation.status !== "active") return;
     await this.parts.hosts?.refreshAllowances(key).catch(() => undefined);
+    const limits = this.service.options.quotas ?? DEFAULT_QUOTAS;
+    const used = await this.store.quotaUsed(
+      `user:${key.appId}:${key.enterpriseId ?? "-"}:${key.teamId}:${userId}`,
+      windowOf(new Date()),
+    );
     const view = await homeView(
       this.store,
       key,
       userId,
       this.service.webUrl,
       this.service.links,
+      { limit: limits.user, used, window: "hour" },
     );
     await this.parts.publishHome?.(key, userId, view);
   }

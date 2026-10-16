@@ -100,6 +100,13 @@ async function main(): Promise<void> {
     config.DATALAYER_WEB_URL,
     hosts,
     {
+      events: config.DATALAYER_SLACK_EVENTS,
+      quotas: {
+        application: config.DATALAYER_SLACK_QUOTA_APPLICATION,
+        organization: config.DATALAYER_SLACK_QUOTA_ORGANIZATION,
+        user: config.DATALAYER_SLACK_QUOTA_USER,
+        workspace: config.DATALAYER_SLACK_QUOTA_WORKSPACE,
+      },
       // *Open in Datalayer*: a one-use handoff to the exact session (S-305).
       openUrlOf: async (sessionId, request) => {
         const exchanged = await keyed.exchange(request);

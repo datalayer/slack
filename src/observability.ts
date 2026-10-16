@@ -34,6 +34,30 @@ export function redact(value: unknown, depth = 0): unknown {
   return value;
 }
 
+/** Field names of credentials only: what even a privileged reader never sees. */
+const CREDENTIAL_NAME =
+  /(token|secret|password|authorization|cookie|signature|host_?key|api_?key|private_?key)/i;
+
+/**
+ * A copy with credentials redacted but words kept: what an audited,
+ * privileged payload read shows (S-405).
+ */
+export function redactCredentials(value: unknown, depth = 0): unknown {
+  if (depth > 8) return REDACTED;
+  if (typeof value === "string") return value.replace(SECRET_VALUE, REDACTED);
+  if (Array.isArray(value))
+    return value.map((one) => redactCredentials(one, depth + 1));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [name, one] of Object.entries(value))
+      out[name] = CREDENTIAL_NAME.test(name)
+        ? REDACTED
+        : redactCredentials(one, depth + 1);
+    return out;
+  }
+  return value;
+}
+
 /** A stable pseudonym of an id: the same id, the same 16 hex characters; never reversible. */
 export function pseudonym(
   value: string,
