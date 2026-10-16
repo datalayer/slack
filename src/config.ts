@@ -73,6 +73,15 @@ const schema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    /**
+     * Optional thread context (S-401, ADR 0003): off unless turned on here,
+     * and then only where an administrator chose it and the optional
+     * manifest's history scope was granted (`src/thread-context.ts`).
+     */
+    DATALAYER_SLACK_THREAD_CONTEXT: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     /** quiet: one status line while a turn works; noisy: every tool it used, listed (S-308). */
     DATALAYER_SLACK_EVENTS: z.enum(["quiet", "noisy"]).default("quiet"),
     DATALAYER_DEV_PRINCIPAL_ID: optionalSecret,

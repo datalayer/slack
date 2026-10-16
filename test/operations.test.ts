@@ -239,6 +239,13 @@ describe("the guide, linked where people meet @Datalayer (S-108)", () => {
 });
 
 describe("ingress and workers scaled apart (§10, A-17)", () => {
+  it("keeps streaming and thread context off unless turned on", () => {
+    const config = readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "x" });
+    expect(config.DATALAYER_SLACK_THREAD_CONTEXT).toBe(false);
+    expect(config.DATALAYER_SLACK_STREAMING).toBe(false);
+    expect(config.DATALAYER_SLACK_EVENTS).toBe("quiet");
+  });
+
   it("defaults to one process doing both, and needs the durable store to split", () => {
     expect(
       readConfig({ NODE_ENV: "test", SLACK_SIGNING_SECRET: "x" })
