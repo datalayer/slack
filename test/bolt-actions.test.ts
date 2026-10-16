@@ -5,7 +5,15 @@ import { describe, expect, it } from "vitest";
 import { APPROVE_ACTION } from "../src/approval-card.js";
 import { registerSlackListeners } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
-import { MemoryWorkQueue } from "@datalayer/agent-runtimes/lib/portable/hosts";
+import {
+  HostKeyCredentials,
+  HttpAgentClient,
+  MemoryWorkQueue,
+  type AgentClient,
+} from "@datalayer/agent-runtimes/lib/portable/hosts";
+
+import { sessionUidOf, slackShape } from "../src/agent-client.js";
+import type { ThreadKey, TurnRequest } from "../src/domain.js";
 import {
   ASK_CHOICE_ACTION,
   askChoiceValue,
@@ -53,9 +61,12 @@ const allow = [
   { id: "dep-2", name: "Desk" },
 ];
 
-function boltOf(store: MemorySlackStore, deliveries?: DeliveryHandler) {
+function boltOf(
+  store: MemorySlackStore,
+  deliveries?: DeliveryHandler,
+  agents: AgentClient<ThreadKey> = new FakeAgents(),
+) {
   const slack = new FakeSlack();
-  const agents = new FakeAgents();
   const queue = new KeptQueue();
   const service = new SlackAgentService(
     store,
@@ -395,5 +406,199 @@ describe("Open in Datalayer through the Bolt handlers (S-306)", () => {
         "U2",
       ],
     ]);
+  });
+});
+
+describe("A question asked in the AG-UI stream, answered in Slack, end to end (S-307)", () => {
+  const API = "https://prod1.datalayer.run";
+  const SESSIONS = `${API}/rt-1/api/v1/apps/sessions`;
+  const exchanged = {
+    success: true,
+    access_token: "host-token",
+    token_type: "Bearer",
+    expires_in: 900,
+    exp: 4102444800,
+    principal_uid: "alice",
+    host_uid: "inst-1",
+    deployment: {
+      uid: "dep-1",
+      app_uid: "app-1",
+      app_name: "Desk",
+      version: 1,
+    },
+    session_api: { url: SESSIONS, agent: "agent-desk" },
+  };
+  const sse = (...events: unknown[]) =>
+    new Response(
+      events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  /** The runtime's stream of a turn that ends asking `asking`. */
+  const asked = (asking: Record<string, unknown>) =>
+    sse(
+      {
+        type: "CUSTOM",
+        name: "loop.turn",
+        value: { turn: "t1", replayed: false, state: "running" },
+      },
+      { type: "TEXT_MESSAGE_CONTENT", delta: "Before I compare them: " },
+      { type: "CUSTOM", name: "loop.ask", value: asking },
+      { type: "RUN_FINISHED", result: { asking } },
+    );
+
+  /** The shared client over a fake fetch: the exchange, the runtime and the thread's binding. */
+  function wired(first: Response) {
+    const calls: Array<{ body?: Record<string, unknown>; key: string }> = [];
+    const answers: Record<string, () => Response> = {
+      [`POST ${API}/api/ai-agents/v1/apps/hosts/self/token`]: () =>
+        Response.json(exchanged),
+      [`POST ${SESSIONS}`]: () => first,
+    };
+    const fetchImplementation = (async (
+      input: string | URL,
+      init?: RequestInit,
+    ) => {
+      const key = `${init?.method ?? "GET"} ${String(input)}`;
+      calls.push({
+        body: init?.body
+          ? (JSON.parse(init.body as string) as Record<string, unknown>)
+          : undefined,
+        key,
+      });
+      if (key.startsWith(`PUT ${API}/api/ai-agents/v1/apps/hosts/sessions/`))
+        return Response.json({ success: true });
+      const answer = answers[key];
+      if (!answer) throw new Error(`unexpected ${key}`);
+      return answer();
+    }) as typeof fetch;
+    const hostKey = async () => "dlhk_key";
+    const agents = new HttpAgentClient<ThreadKey>(
+      API,
+      new HostKeyCredentials(API, hostKey, slackShape, fetchImplementation),
+      slackShape,
+      fetchImplementation,
+      hostKey,
+    );
+    return { agents, answers, calls };
+  }
+
+  it("shows a choice as buttons, sends the press as the next turn, and replaces the buttons", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const question = {
+      kind: "choice",
+      prompt: "Which quarter?",
+      options: ["Q3", "Q4"],
+    };
+    const { agents, answers, calls } = wired(asked(question));
+    const { press, queue, service, slack } = boltOf(store, undefined, agents);
+
+    await service.handlePrompt(promptOf(), "B1");
+    const shown = slack.of("chat.update").at(-1)?.message;
+    const blocks = (shown?.blocks ?? []) as KnownBlock[];
+    const buttons = JSON.stringify(blocks);
+    expect(buttons).toContain("Which quarter?");
+    expect(buttons).toContain(`${ASK_CHOICE_ACTION}_0`);
+    expect(buttons).toContain(`${ASK_CHOICE_ACTION}_1`);
+    expect(buttons).toContain(JSON.stringify(askChoiceValue("Q4", "Ev1")));
+    const questionTs = slack.of("chat.postMessage")[0]?.ts;
+    expect(questionTs).toBeDefined();
+
+    // The runtime answers the next message of the same session.
+    const session = sessionUidOf({
+      provenance: promptOf(),
+    } as unknown as TurnRequest);
+    answers[`POST ${SESSIONS}/${session}/messages`] = () =>
+      sse(
+        {
+          type: "CUSTOM",
+          name: "loop.turn",
+          value: { turn: "t2", replayed: false, state: "running" },
+        },
+        { type: "TEXT_MESSAGE_CONTENT", delta: "Q4 is the safer quarter." },
+        { type: "RUN_FINISHED" },
+      );
+
+    await press({
+      actions: [
+        {
+          action_id: `${ASK_CHOICE_ACTION}_1`,
+          action_ts: "8.1",
+          type: "button",
+          value: askChoiceValue("Q4", "Ev1"),
+        },
+      ],
+      channel: { id: "C1" },
+      message: { blocks, text: shown?.text, thread_ts: "1.0", ts: questionTs },
+      user: { id: "U1", team_id: "T1" },
+    });
+    // The buttons are replaced by who answered what.
+    const replaced = slack
+      .of("chat.update")
+      .filter((call) => call.ts === questionTs)
+      .at(-1);
+    expect(JSON.stringify(replaced?.message?.blocks)).not.toContain(
+      ASK_CHOICE_ACTION,
+    );
+    expect(JSON.stringify(replaced?.message?.blocks)).toContain(
+      "<@U1> answered: Q4",
+    );
+
+    // The press is one new turn: its answer, sent to the same session.
+    const jobs = promptsOf(queue);
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        eventId: "ask:1.0:Ev1",
+        text: "Q4",
+        userId: "U1",
+      }),
+    ]);
+    const posted = slack.of("chat.postMessage").length;
+    await service.handlePrompt(
+      jobs[0] as Parameters<typeof service.handlePrompt>[0],
+      "B1",
+    );
+    const sent = calls.find(
+      (call) => call.key === `POST ${SESSIONS}/${session}/messages`,
+    );
+    expect(sent?.body).toMatchObject({
+      external_event_id: "ask:1.0:Ev1",
+      text: "Q4",
+    });
+    expect(slack.of("chat.postMessage")).toHaveLength(posted + 1);
+    expect(slack.of("chat.update").at(-1)?.message?.text).toBe(
+      "Q4 is the safer quarter.",
+    );
+  });
+
+  it("asks a text question in the thread, and hands a form or a file to Open in Datalayer", async () => {
+    for (const [question, expected] of [
+      [
+        { kind: "text", prompt: "What budget?" },
+        "Answer in this thread by mentioning @Datalayer with your answer.",
+      ],
+      [
+        { kind: "form", prompt: "Your details" },
+        "press *Open in Datalayer* to answer it.",
+      ],
+      [
+        { kind: "file", prompt: "Upload the ledger" },
+        "press *Open in Datalayer* to answer it.",
+      ],
+    ] as const) {
+      const store = await installedStore({
+        allow,
+        defaultApplication: "dep-1",
+      });
+      const { agents } = wired(asked(question));
+      const { service, slack } = boltOf(store, undefined, agents);
+      await service.handlePrompt(promptOf(), "B1");
+      const blocks = JSON.stringify(
+        slack.of("chat.update").at(-1)?.message?.blocks,
+      );
+      expect(blocks).toContain(question.prompt);
+      expect(blocks).toContain(expected);
+      expect(blocks).not.toContain(ASK_CHOICE_ACTION);
+      if (question.kind !== "text") expect(blocks).toContain(OPEN_ACTION);
+    }
   });
 });
