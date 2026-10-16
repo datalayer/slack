@@ -62,8 +62,6 @@ export class StoreLinks implements AccountLinks {
 export type HostInstallationsOptions = Readonly<{
   /** Where Datalayer pushes this installation's deliveries; none: the outbox only. */
   deliveryUrlOf?: (hostUid: string) => string | undefined;
-  /** Development only: one host key for every workspace without its own. */
-  developmentHostKey?: string;
   logger?: Pick<Console, "warn">;
   webUrl: string;
 }>;
@@ -150,11 +148,11 @@ export class HostInstallations implements AccountLinks {
     }
   }
 
-  /** The workspace's host key: its own, else (development) the configured one. */
+  /** The workspace's own host key, kept when it was bound. */
   async hostKeyOf(key: SlackInstallationKey): Promise<string | undefined> {
     const installation = await this.store.getInstallation(key);
     if (!installation || installation.status !== "active") return undefined;
-    return installation.datalayerHostKey ?? this.options.developmentHostKey;
+    return installation.datalayerHostKey;
   }
 
   async linkOf(

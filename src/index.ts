@@ -40,18 +40,14 @@ async function main(): Promise<void> {
   const resources = createRuntimeResources(config, (store) => {
     return new HostInstallations(store, client, {
       deliveryUrlOf: (hostUid) => deliveryUrlOf(config, hostUid),
-      developmentHostKey:
-        config.NODE_ENV === "development"
-          ? config.DATALAYER_HOST_KEY
-          : undefined,
       logger: console,
       webUrl: config.DATALAYER_WEB_URL,
     });
   });
   const { hosts, queue, store } = resources;
-  await seedDevelopmentInstallation(config, store);
+  await seedDevelopmentInstallation(config, store, client);
 
-  // Each workspace's own key; the single configured key only in development.
+  // Each workspace's own key, kept when it was bound (in development, from the environment).
   const hostKeyFor: HostKeyLookup<ThreadKey> = async (request) =>
     hosts.hostKeyOf(request.provenance);
   const keyed = new HostKeyCredentials(

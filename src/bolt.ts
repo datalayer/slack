@@ -10,6 +10,7 @@ import {
 import type { KnownBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 import type {
+  DatalayerHostClient,
   Tracer,
   WorkQueue,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
@@ -804,9 +805,17 @@ export async function uninstallSlackWorkspace(
 
 export type { SlackJob } from "./worker.js";
 
+/**
+ * The development workspace, from the environment. Given a host key
+ * (development only), it is bound as an install would bind it: the key and
+ * the installation's uid, read from Datalayer, kept with the workspace, so
+ * its calls carry the key and the outbox poller reads its deliveries.
+ * A key Datalayer refuses stops the start.
+ */
 export async function seedDevelopmentInstallation(
   config: Config,
   store: SlackStore,
+  client: Pick<DatalayerHostClient, "self">,
 ): Promise<void> {
   if (
     config.NODE_ENV !== "development" ||
@@ -821,8 +830,16 @@ export async function seedDevelopmentInstallation(
     appId: config.DATALAYER_SLACK_APP_ID,
     teamId: config.DATALAYER_SLACK_TEAM_ID,
   };
+  const hostKey = config.DATALAYER_HOST_KEY;
+  const bound = hostKey
+    ? {
+        datalayerHostKey: hostKey,
+        datalayerHostUid: (await client.self(hostKey)).uid,
+      }
+    : {};
   await store.putInstallation({
     ...key,
+    ...bound,
     botToken: config.DATALAYER_SLACK_BOT_TOKEN,
     botUserId: config.DATALAYER_SLACK_BOT_USER_ID,
     installedBy: "development",
