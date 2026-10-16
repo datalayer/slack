@@ -30,7 +30,7 @@ export const HOME_WORDS = {
     "What it suggests asking could not be read from Datalayer just now. Open this Home again later.",
   answers: "How answers show their work",
   quiet: "Quiet: one status line",
-  noisy: "Noisy: every tool it used, listed",
+  noisy: "Noisy: every step it took, listed",
 } as const;
 
 /** The person's choice of quiet or noisy answers (S-308), the one in force selected. */

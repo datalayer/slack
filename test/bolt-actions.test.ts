@@ -641,7 +641,7 @@ describe("Quiet or noisy, chosen on the Home through the Bolt handlers (S-308)",
     // Their Home shown again, the choice selected.
     expect(published.at(-1)?.user_id).toBe("U1");
     expect(JSON.stringify(published.at(-1)?.view)).toContain(
-      '"initial_option":{"text":{"type":"plain_text","text":"Noisy: every tool it used, listed"},"value":"noisy"}',
+      '"initial_option":{"text":{"type":"plain_text","text":"Noisy: every step it took, listed"},"value":"noisy"}',
     );
     await expect(
       store.getEventPolicy(promptOf(), "U2"),
