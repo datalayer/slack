@@ -212,12 +212,19 @@ export class TurnPresentation extends TurnState {
         blocks.push(...sectionsOf(answerMrkdwn(part.text)));
       if (part.kind === "table") blocks.push(...tableBlocks(part, openUrl));
     }
+    // A file is named, never linked by its own address (S-306, decided by
+    // the user 16 October 2026): it opens in the conversation in Datalayer,
+    // through the one-use handoff that needs sign-in. Nothing is uploaded to
+    // Slack, and nothing is public.
     for (const file of this.files)
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${slackLink(file.url, file.name)}${file.mediaType ? ` (${escapeSlack(file.mediaType)})` : ""}`,
+          text: bounded(
+            `${escapeSlack(file.name)}${file.mediaType ? ` (${escapeSlack(file.mediaType)})` : ""}: ${safeHttpsUrl(openUrl) ? slackLink(openUrl, "open it in Datalayer") : "in the conversation in Datalayer"}`,
+            SLACK_LIMITS.sectionText,
+          ),
         },
       });
     if (citations.length > 0)

@@ -11,6 +11,7 @@ import { LOG_SALT } from "../src/observability.js";
 import { SlackAgentService } from "../src/service.js";
 import type { MemorySlackStore } from "../src/store.js";
 import {
+  NOT_A_MEMBER_HOME,
   SEND_EDITED_ACTION,
   SlackWorker,
   type SlackJob,
@@ -351,5 +352,99 @@ describe("tracing a job (S-101, §12.2)", () => {
     );
     expect(lines.join("\n")).not.toContain("secret plan");
     expect(lines.join("\n")).not.toContain("C1");
+  });
+});
+
+describe("the direct message's suggested prompts and guests' Home (S-104, S-209)", () => {
+  const thread = { ...installationKey, channelId: "D1", threadTs: "9.0" };
+
+  function assistantOf(
+    store: MemorySlackStore,
+    startersOf: (
+      applicationId: string,
+    ) => Promise<ReadonlyArray<{ label: string; message: string }>>,
+  ) {
+    const slack = new FakeSlack();
+    const { lines, logger } = keptLogger();
+    const service = new SlackAgentService(
+      store,
+      new FakeAgents(),
+      slack,
+      "https://datalayer.ai",
+      new FakeLinks(),
+      { clock: new FakeClock(), logger },
+    );
+    const asked: string[] = [];
+    const homes: unknown[] = [];
+    const worker = new SlackWorker(service, new KeptQueue(), {
+      publishHome: async (_key, _user, view) => {
+        homes.push(view);
+      },
+      starters: {
+        startersOf: async (_key, userId, applicationId) => {
+          asked.push(`${userId}:${applicationId}`);
+          return startersOf(applicationId);
+        },
+      },
+    });
+    return { asked, homes, lines, slack, worker };
+  }
+
+  const five = Array.from({ length: 5 }, (_, index) => ({
+    label: `Starter ${index + 1}`,
+    message: `Ask ${index + 1}`,
+  }));
+
+  it("suggests the default application's first four starters, read as the person", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const run = assistantOf(store, async () => five);
+    await run.worker.handle({ kind: "assistant", thread, userId: "U1" });
+    expect(run.asked).toEqual(["U1:dep-1"]);
+    const [call] = run.slack.of("assistant.threads.setSuggestedPrompts");
+    expect(call?.key).toEqual(thread);
+    expect(call?.title).toBe("Try asking Launch Review");
+    expect(call?.prompts).toEqual(
+      five
+        .slice(0, 4)
+        .map((one) => ({ message: one.message, title: one.label })),
+    );
+  });
+
+  it("suggests nothing to a guest, someone not connected, or with no default for direct messages", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const run = assistantOf(store, async () => five);
+    run.slack.members.set("U1", { external: false, guest: true });
+    await run.worker.assistant(thread, "U1");
+    await run.worker.assistant(thread, "U9"); // not linked
+    expect(run.asked).toEqual([]);
+    const none = await installedStore({ allow });
+    const other = assistantOf(none, async () => five);
+    await other.worker.assistant(thread, "U1");
+    expect(other.asked).toEqual([]);
+    expect(
+      [run, other].flatMap((one) =>
+        one.slack.of("assistant.threads.setSuggestedPrompts"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("opens the thread without prompts when the starters cannot be read, and logs it", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const run = assistantOf(store, async () => {
+      throw new Error("the runtime answers no starters");
+    });
+    await run.worker.assistant(thread, "U1");
+    expect(run.slack.of("assistant.threads.setSuggestedPrompts")).toEqual([]);
+    expect(run.lines.join("\n")).toContain("assistant.starters_unread");
+  });
+
+  it("shows a guest or a person of another organization a Home with no link", async () => {
+    const store = await installedStore({ allow, defaultApplication: "dep-1" });
+    const run = assistantOf(store, async () => five);
+    run.slack.members.set("U1", { external: true, guest: false });
+    await run.worker.home(installationKey, "U1");
+    expect(JSON.stringify(run.homes)).toContain(NOT_A_MEMBER_HOME);
+    expect(JSON.stringify(run.homes)).not.toContain("hosts/link");
+    expect(run.asked).toEqual([]);
   });
 });

@@ -9,6 +9,8 @@ features:
     home_tab_enabled: true
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
+  assistant_view:
+    assistant_description: Ask your Datalayer application. Its suggested prompts are the application's own.
   bot_user:
     display_name: "Datalayer Dev"
     always_online: true
@@ -18,8 +20,10 @@ oauth_config:
   scopes:
     bot:
       - app_mentions:read
+      - assistant:write
       - chat:write
       - im:history
+      - users:read
 settings:
   event_subscriptions:
     request_url: "https://slack-dev.datalayer.run/slack/events"
@@ -27,6 +31,7 @@ settings:
       - app_home_opened
       - app_mention
       - app_uninstalled
+      - assistant_thread_started
       - message.im
       - tokens_revoked
   interactivity:

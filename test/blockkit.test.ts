@@ -23,7 +23,7 @@ import {
   messageProblems,
   surfaceProblems,
 } from "./support/blockkit.js";
-import { FakeLinks } from "./support/fakes.js";
+import { FakeLinks, FakeSlack } from "./support/fakes.js";
 import { CONTRACTS_PATH } from "./support/contracts.js";
 
 /**
@@ -163,7 +163,12 @@ describe("Block Kit snapshots and limits (S-406)", () => {
 
   it("the application selector, in a channel and as a switch", async () => {
     const store = await storeWithApplications();
-    const routing = new TurnRouting(store, new FakeLinks(), WEB);
+    const routing = new TurnRouting(
+      store,
+      new FakeLinks(),
+      WEB,
+      new FakeSlack(),
+    );
     const allowances = await store.getAllowances(key);
     const channel = routing.selector(allowances, {
       channelId: "C1",

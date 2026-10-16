@@ -43,8 +43,17 @@ describe("the manifests as code (S-006, S-107)", () => {
     expect([...MANIFEST_BOT_SCOPES]).toEqual(BOT_SCOPES);
   });
 
+  it("adds only the two scopes the user decided to the baseline (S-104, S-209)", () => {
+    expect(
+      BOT_SCOPES.filter(
+        (scope) =>
+          !["app_mentions:read", "chat:write", "im:history"].includes(scope),
+      ),
+    ).toEqual(["assistant:write", "users:read"]);
+  });
+
   it.each(ENVIRONMENT_NAMES)(
-    "%s parses to exactly the baseline scopes, the five events and its own URLs",
+    "%s parses to exactly its five scopes, its six events, the Agent surface and its own URLs",
     async (name) => {
       const manifest = validate(await committed(name), name);
       expect(manifest.oauth_config.scopes).toEqual({
@@ -53,6 +62,9 @@ describe("the manifests as code (S-006, S-107)", () => {
       expect(manifest.settings.event_subscriptions.bot_events).toEqual([
         ...MANIFEST_BOT_EVENTS,
       ]);
+      expect(manifest.features.assistant_view.assistant_description).toMatch(
+        /suggested prompts/,
+      );
       expect(manifest.settings.socket_mode_enabled).toBe(
         name === "development",
       );
@@ -138,8 +150,8 @@ describe("the manifests as code (S-006, S-107)", () => {
     expect(() =>
       validate(
         production.replace(
-          "      - im:history",
-          "      - im:history\n      - channels:history",
+          "      - users:read",
+          "      - users:read\n      - channels:history",
         ),
         "production",
       ),

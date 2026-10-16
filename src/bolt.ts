@@ -65,9 +65,12 @@ import {
 import {
   isDirectChannel,
   isThreadKey,
+  slackMemberOf,
+  type SlackMember,
   type SlackMessage,
   type SlackPort,
   type SlackStreaming,
+  type SuggestedPrompt,
 } from "./slack-port.js";
 import type { SlackAgentService, StopValue } from "./service.js";
 import { SEND_EDITED_ACTION, SlackWorker, type SlackJob } from "./worker.js";
@@ -188,13 +191,49 @@ export class BoltSlackPort implements SlackPort {
     });
   }
 
+  async memberOf(
+    key: SlackInstallationKey,
+    userId: string,
+  ): Promise<SlackMember> {
+    const response = await this.client.users.info({
+      token: await this.#token(key),
+      user: userId,
+    });
+    if (!response.user) throw new Error("Slack did not return the member.");
+    return slackMemberOf(response.user, key.teamId);
+  }
+
+  async suggestPrompts(
+    key: ThreadKey,
+    title: string,
+    prompts: readonly SuggestedPrompt[],
+  ): Promise<void> {
+    await this.client.assistant.threads.setSuggestedPrompts({
+      channel_id: key.channelId,
+      prompts: prompts.map((one) => ({ ...one })),
+      thread_ts: key.threadTs,
+      title,
+      token: await this.#token(key),
+    });
+  }
+
   async #token(key: SlackInstallationKey): Promise<string> {
     return this.tokens.token(key);
   }
 }
 
-/** The bot scopes of the baseline (§6.2), and nothing else. */
-export const BOT_SCOPES = ["app_mentions:read", "chat:write", "im:history"];
+/**
+ * The bot scopes (§6.2): the baseline, `assistant:write` for the direct
+ * message's suggested prompts (S-104) and `users:read` to tell guests and
+ * external people apart (S-209), both decided by the user 16 October 2026.
+ */
+export const BOT_SCOPES = [
+  "app_mentions:read",
+  "assistant:write",
+  "chat:write",
+  "im:history",
+  "users:read",
+];
 
 export type BoltAppOptions = Readonly<{
   /** The routes served beside Slack's: Datalayer's signed deliveries. */
@@ -413,6 +452,32 @@ export function registerSlackListeners(
       );
     } catch (error) {
       logger.error("Failed to persist App Home", error);
+      throw error;
+    }
+  });
+
+  // A direct-message thread opened in @Datalayer's Agent surface: its
+  // suggested prompts (S-104, `assistant:write`).
+  app.event("assistant_thread_started", async ({ body, event, logger }) => {
+    const key = installationKeyOf(body);
+    const thread = event.assistant_thread;
+    if (!key || !body.event_id || !thread?.channel_id || !thread.thread_ts)
+      return;
+    try {
+      await queue.enqueue(
+        {
+          kind: "assistant",
+          thread: {
+            ...key,
+            channelId: thread.channel_id,
+            threadTs: thread.thread_ts,
+          },
+          userId: thread.user_id,
+        },
+        body.event_id,
+      );
+    } catch (error) {
+      logger.error("Failed to persist an assistant thread", error);
       throw error;
     }
   });

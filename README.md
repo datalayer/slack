@@ -66,19 +66,20 @@ The service says this through configuration rather than using a workspace token 
 
 ## Why each scope exists
 
-The manifests request exactly three bot scopes and no user scope. `scripts/manifest.ts` parses each manifest as YAML and holds it to a strict schema (a key moved out of its parent fails), to exactly these scopes and five events, and to its environment's URLs, Socket Mode and token rotation; `test/manifest.test.ts` and `npm run manifest:check` fail if a manifest asks for more.
+The manifests request exactly five bot scopes and no user scope: the baseline three, and `assistant:write` and `users:read`, decided by the user on 16 October 2026. `scripts/manifest.ts` parses each manifest as YAML and holds it to a strict schema (a key moved out of its parent fails), to exactly these scopes and six events (with `assistant_thread_started`), the Agent surface (`features.assistant_view`), and to its environment's URLs, Socket Mode and token rotation; `test/manifest.test.ts` and `npm run manifest:check` fail if a manifest asks for more.
 
-| Scope               | Why @Datalayer needs it                                                                                                                         | What it does not allow                                                            |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `app_mentions:read` | Receive `@Datalayer …` in a channel the app was invited to (`app_mention`).                                                                     | Reading any other message in the channel.                                         |
-| `chat:write`        | Answer in the thread, update and stream the answer (`chat.update`, `chat.startStream`), and send private setup messages (`chat.postEphemeral`). | Posting in a channel the app was not invited to: there is no `chat:write.public`. |
-| `im:history`        | Receive the messages people send in @Datalayer's Messages tab (`message.im`).                                                                   | Reading other people's direct messages.                                           |
+| Scope               | Why @Datalayer needs it                                                                                                                                  | What it does not allow                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `app_mentions:read` | Receive `@Datalayer …` in a channel the app was invited to (`app_mention`).                                                                              | Reading any other message in the channel.                                         |
+| `chat:write`        | Answer in the thread, update and stream the answer (`chat.update`, `chat.startStream`), and send private setup messages (`chat.postEphemeral`).          | Posting in a channel the app was not invited to: there is no `chat:write.public`. |
+| `im:history`        | Receive the messages people send in @Datalayer's Messages tab (`message.im`).                                                                            | Reading other people's direct messages.                                           |
+| `assistant:write`   | Show the default application's starters as the suggested prompts of @Datalayer's direct-message thread (`assistant.threads.setSuggestedPrompts`, S-104). | Reading any message.                                                              |
+| `users:read`        | Tell a guest or a person of another organization apart (`users.info`), so they are refused by default (S-209).                                           | Reading messages, email addresses or profiles beyond who the member is.           |
 
 Absent until a shipped feature needs them, each behind its own reauthorization:
 
 - `channels:history` and `groups:history`: optional thread context, S-401 and S-402;
-- `files:write`: files uploaded to Slack;
-- `users:read`;
+- `files:write`: files uploaded to Slack (decided 16 October 2026: a file opens in the conversation in Datalayer instead, through a one-use handoff);
 - `commands`.
 
 Because channel history is not read, an edit to a channel message is never delivered. Only edits in direct messages are handled.

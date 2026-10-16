@@ -1,6 +1,7 @@
 import {
   DEFAULT_QUOTAS,
   noTracer,
+  usableAllowances,
   userQuotaKey,
   windowOf,
   type DeliveryJob,
@@ -33,7 +34,15 @@ export type SlackJob =
       thread: ThreadKey;
       userId?: string;
       deletedTs: string;
-    }>;
+    }>
+  | Readonly<{ kind: "assistant"; thread: ThreadKey; userId: string }>;
+
+/** How many starters the direct message suggests: Slack shows four. */
+export const SUGGESTED_PROMPTS = 4;
+
+/** What App Home says to a guest or a person of another organization (S-209). */
+export const NOT_A_MEMBER_HOME =
+  "@Datalayer answers only full members of this workspace. Guests and people of another organization cannot use it yet.";
 
 export const SEND_EDITED_ACTION = "datalayer_send_edited";
 
@@ -98,6 +107,9 @@ export class SlackWorker {
       case "deleted":
         await this.deleted(job.thread, job.deletedTs, job.userId);
         return;
+      case "assistant":
+        await this.assistant(job.thread, job.userId);
+        return;
       default:
         await this.service.handlePrompt(job.prompt, job.botUserId);
     }
@@ -107,6 +119,21 @@ export class SlackWorker {
   async home(key: SlackInstallationKey, userId: string): Promise<void> {
     const installation = await this.store.getInstallation(key);
     if (!installation || installation.status !== "active") return;
+    // A guest or a person of another organization is offered nothing, not
+    // even a link (S-209).
+    const member = await this.service.slack.memberOf(key, userId);
+    if (member.guest || member.external) {
+      await this.parts.publishHome?.(key, userId, {
+        type: "home",
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: NOT_A_MEMBER_HOME },
+          },
+        ],
+      });
+      return;
+    }
     await this.parts.hosts?.refreshAllowances(key).catch(() => undefined);
     const limits = this.service.options.quotas ?? DEFAULT_QUOTAS;
     const used = await this.store.quotaUsed(
@@ -126,6 +153,51 @@ export class SlackWorker {
       this.parts.starters,
     );
     await this.parts.publishHome?.(key, userId, view);
+  }
+
+  /**
+   * A direct-message thread opened in @Datalayer's Agent surface (S-104,
+   * `assistant_thread_started`): its suggested prompts are the default
+   * application's starters, read as this person. A guest, a person of
+   * another organization, someone not connected, or no default usable in a
+   * direct message gets none; their first message says why.
+   */
+  async assistant(thread: ThreadKey, userId: string): Promise<void> {
+    const starters = this.parts.starters;
+    if (!starters) return;
+    const installation = await this.store.getInstallation(thread);
+    if (!installation || installation.status !== "active") return;
+    const member = await this.service.slack.memberOf(thread, userId);
+    if (member.guest || member.external) return;
+    if (!(await this.service.links.linkOf(thread, userId))) return;
+    const [applicationId, allowances] = await Promise.all([
+      this.store.getDefaultApplication(thread),
+      this.store.getAllowances(thread),
+    ]);
+    const allowance = usableAllowances(allowances, "direct").find(
+      (one) => one.applicationId === applicationId,
+    );
+    if (!applicationId || !allowance) return;
+    const suggested = await starters
+      .startersOf(thread, userId, applicationId)
+      .catch((error: unknown) => {
+        // App Home says the starters cannot be read; the thread opens without them.
+        this.service.logger.warn("assistant.starters_unread", {
+          error_name: error instanceof Error ? error.name : "unknown",
+        });
+        return undefined;
+      });
+    if (!suggested) return;
+    const prompts = suggested.slice(0, SUGGESTED_PROMPTS).map((one) => ({
+      message: one.message.slice(0, 2_000),
+      title: one.label.slice(0, 75),
+    }));
+    if (prompts.length === 0) return;
+    await this.service.slack.suggestPrompts(
+      thread,
+      `Try asking ${allowance.name}`.slice(0, 150),
+      prompts,
+    );
   }
 
   /**

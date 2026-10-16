@@ -13,9 +13,11 @@ import {
   type TurnStream,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type {
+  SlackMember,
   SlackMessage,
   SlackPort,
   SlackStreaming,
+  SuggestedPrompt,
 } from "../../src/slack-port.js";
 import { MemorySlackStore } from "../../src/store.js";
 
@@ -40,12 +42,18 @@ export type SlackCall = Readonly<{
   ts?: string;
   message?: SlackMessage;
   markdown?: string;
+  title?: string;
+  prompts?: readonly SuggestedPrompt[];
 }>;
 
 /** Slack's Web API as calls kept in order; `fail` makes the next calls of a method fail. */
 export class FakeSlack implements SlackPort {
   readonly calls: SlackCall[] = [];
   readonly failures = new Map<string, unknown[]>();
+  /** Who a member is (`users.info`); anyone not named is a full member of the workspace. */
+  readonly members = new Map<string, SlackMember>();
+  /** The members looked up, in order. */
+  readonly lookedUp: string[] = [];
   #ts = 1;
   streaming?: SlackStreaming;
 
@@ -125,6 +133,29 @@ export class FakeSlack implements SlackPort {
   async updateMessage(key: ThreadKey, ts: string, message: SlackMessage) {
     this.#maybeFail("chat.update");
     this.calls.push({ key, message, method: "chat.update", ts });
+  }
+
+  async memberOf(
+    _key: SlackInstallationKey,
+    userId: string,
+  ): Promise<SlackMember> {
+    this.#maybeFail("users.info");
+    this.lookedUp.push(userId);
+    return this.members.get(userId) ?? { external: false, guest: false };
+  }
+
+  async suggestPrompts(
+    key: ThreadKey,
+    title: string,
+    prompts: readonly SuggestedPrompt[],
+  ) {
+    this.#maybeFail("assistant.threads.setSuggestedPrompts");
+    this.calls.push({
+      key,
+      method: "assistant.threads.setSuggestedPrompts",
+      prompts,
+      title,
+    });
   }
 }
 

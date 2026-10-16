@@ -13,7 +13,7 @@ import type {
 } from "./domain.js";
 import type { AccountLinks } from "./host-installations.js";
 import { escapeSlack, slackLink } from "./presentation.js";
-import type { SlackMessage } from "./slack-port.js";
+import type { SlackMessage, SlackPort } from "./slack-port.js";
 import type { SlackStore } from "./store.js";
 
 /** The application selector's action: one application chosen for the thread. */
@@ -35,6 +35,7 @@ export type SelectorValue = Readonly<{
 export type Refusal =
   | "not-installed"
   | "external"
+  | "guest"
   | "not-linked"
   | "channel-denied"
   | "not-allowed"
@@ -72,6 +73,8 @@ export class TurnRouting {
     readonly store: SlackStore,
     readonly links: AccountLinks,
     readonly webUrl: string,
+    /** Who a member is (`users.info`): guests and external people are refused (S-209). */
+    readonly members: Pick<SlackPort, "memberOf">,
   ) {}
 
   async resolve(prompt: IncomingPrompt): Promise<Resolution> {
@@ -95,6 +98,27 @@ export class TurnRouting {
         refusal: "external",
         message: {
           text: `@Datalayer does not answer in Slack Connect or shared channels yet. Ask it in a direct message or a channel of your own workspace. ${this.#docs("limits-and-availability")}`,
+        },
+      };
+
+    // Guests (single- and multi-channel) and people of another organization
+    // are refused by default (S-209, decided by the user 16 October 2026),
+    // before anything is offered to them, a link included.
+    const member = await this.members.memberOf(key, prompt.userId);
+    if (member.external)
+      return {
+        ok: false,
+        refusal: "external",
+        message: {
+          text: `@Datalayer does not answer people of another organization yet. ${this.#docs("limits-and-availability")}`,
+        },
+      };
+    if (member.guest)
+      return {
+        ok: false,
+        refusal: "guest",
+        message: {
+          text: `@Datalayer does not answer guests of this workspace yet. ${this.#docs("limits-and-availability")}`,
         },
       };
 

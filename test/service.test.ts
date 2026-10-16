@@ -163,6 +163,54 @@ describe("resolving a Slack message to a person and an application (S-202)", () 
     expect(run.agents.requests).toHaveLength(0);
   });
 
+  it("refuses guests and people of another organization by default, offering them no link (S-209)", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack();
+    slack.members.set("U1", { external: false, guest: true });
+    slack.members.set("U2", { external: true, guest: false });
+    const links = new FakeLinks(
+      new Map([
+        ["U1", "alice"],
+        ["U2", "bob"],
+      ]),
+      "https://datalayer.ai/hosts/link?code=dlhc_x",
+    );
+    const run = serviceOf(store, new FakeAgents(), slack, links);
+    await run.service.handlePrompt(promptOf(), "B1");
+    await run.service.handlePrompt(
+      promptOf({ eventId: "Ev2", userId: "U2" }),
+      "B1",
+    );
+    const said = texts(run.slack, "private");
+    expect(said).toHaveLength(2);
+    expect(said[0]).toContain("does not answer guests of this workspace");
+    expect(said[1]).toContain("people of another organization");
+    for (const words of said) {
+      expect(words).toContain("/docs/slack#limits-and-availability");
+      expect(words).not.toContain("hosts/link");
+    }
+    expect(slack.lookedUp).toEqual(["U1", "U2"]);
+    expect(run.agents.requests).toHaveLength(0);
+    expect(run.lines.join("\n")).toMatch(/"reason":"guest"/);
+  });
+
+  it("answers a full member after asking Slack who they are, and fails the turn when Slack cannot say", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack();
+    const run = serviceOf(store, new FakeAgents(), slack);
+    await run.service.handlePrompt(promptOf(), "B1");
+    expect(slack.lookedUp).toEqual(["U1"]);
+    expect(run.agents.requests).toHaveLength(1);
+    slack.fail("users.info", platformError("missing_scope"));
+    await expect(
+      run.service.handlePrompt(
+        promptOf({ eventId: "Ev2", threadTs: "2.0" }),
+        "B1",
+      ),
+    ).rejects.toThrow(/missing_scope/);
+    expect(run.agents.requests).toHaveLength(1);
+  });
+
   it("refuses privately when Datalayer refuses the linked person the application", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
     const agents = new FakeAgents(() => {

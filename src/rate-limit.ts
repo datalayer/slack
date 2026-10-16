@@ -137,6 +137,14 @@ export function retryingSlackPort(
       limiter.retry("chat.update", key.channelId, () =>
         port.updateMessage(key, ts, message),
       ),
+    memberOf: (key, userId) =>
+      limiter.retry("users.info", userId, () => port.memberOf(key, userId)),
+    suggestPrompts: (key, title, prompts) =>
+      limiter.retry(
+        "assistant.threads.setSuggestedPrompts",
+        key.channelId,
+        () => port.suggestPrompts(key, title, prompts),
+      ),
     streaming,
   };
 }

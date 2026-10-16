@@ -14,9 +14,11 @@ did not choose.
 
 1. **Baseline:** the service receives only the triggering `app_mention` or
    Messages-tab `message.im`, and the messages it posted itself. The bot scopes
-   are exactly `app_mentions:read`, `chat:write` and `im:history`. There is no
-   `chat:write.public`, no user scope, no `channels:history` and no
-   `files:*`. `test/operations.test.ts` holds this.
+   are `app_mentions:read`, `chat:write` and `im:history`, with
+   `assistant:write` (suggested prompts) and `users:read` (guests refused)
+   added by the user's decision of 16 October 2026; neither reads a message.
+   There is no `chat:write.public`, no user scope, no `channels:history` and no
+   `files:*`. `test/manifest.test.ts` holds this.
 2. **Optional thread context** (S-401, S-402) is a separate manifest variant
    with granular history scopes and a reauthorization. A workspace admin turns
    it on (`DATALAYER_SLACK_THREAD_CONTEXT`, off by default). When on, it calls

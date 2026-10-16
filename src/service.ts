@@ -107,7 +107,7 @@ export class SlackAgentService {
     this.#paced = slack;
     this.slack = retryingSlackPort(slack, this.limiter);
     this.logger = options.logger ?? new Logger(undefined, undefined, LOG_SALT);
-    this.routing = new TurnRouting(store, links, webUrl);
+    this.routing = new TurnRouting(store, links, webUrl, this.slack);
   }
 
   /** Say something to one person only; a person gone from Slack is unlinked (fail closed). */

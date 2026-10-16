@@ -45,11 +45,17 @@ export type EnvironmentName = keyof typeof ENVIRONMENTS;
 
 export const ENVIRONMENT_NAMES = Object.keys(ENVIRONMENTS) as EnvironmentName[];
 
-/** The bot scopes, in order: the same list `src/bolt.ts` asks OAuth for. */
+/**
+ * The bot scopes, in order: the same list `src/bolt.ts` asks OAuth for. The
+ * baseline, `assistant:write` (S-104) and `users:read` (S-209), both decided
+ * by the user 16 October 2026.
+ */
 export const MANIFEST_BOT_SCOPES = [
   "app_mentions:read",
+  "assistant:write",
   "chat:write",
   "im:history",
+  "users:read",
 ] as const;
 
 /** The events the service handles, in order. */
@@ -57,6 +63,7 @@ export const MANIFEST_BOT_EVENTS = [
   "app_home_opened",
   "app_mention",
   "app_uninstalled",
+  "assistant_thread_started",
   "message.im",
   "tokens_revoked",
 ] as const;
@@ -76,6 +83,9 @@ export const manifestSchema = z.strictObject({
       home_tab_enabled: z.boolean(),
       messages_tab_enabled: z.boolean(),
       messages_tab_read_only_enabled: z.boolean(),
+    }),
+    assistant_view: z.strictObject({
+      assistant_description: z.string().min(1).max(200),
     }),
     bot_user: z.strictObject({
       display_name: z.string().min(1).max(80),
