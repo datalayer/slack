@@ -104,7 +104,7 @@ describe("The development installation", () => {
     const store = new MemorySlackStore();
     const client = self("host-1");
     await seedDevelopmentInstallation(
-      config({ NODE_ENV: "production" } as Partial<Config>),
+      config({ NODE_ENV: "production" }),
       store,
       client,
     );
