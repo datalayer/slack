@@ -7,7 +7,11 @@
 #        Datalayer only through a handoff (S-305); dead letters (S-405); migrations 006–007.
 # 0.1.3: on the shared host kit (agent-runtimes 1.5.46 lib/portable/hosts, DISCORD DC-004): one esbuild
 #        bundle (dist/index.js, dist/migrate.js, dist/dead-letters.js); the migrate job is `node dist/migrate.js`.
-VERSION ?= 0.1.3
+# 0.1.4: on agent-runtimes 1.5.48 (S-302: a host decides mail only); the stream starts empty, tables and
+#        replayed text streamed, entity-safe cuts, streaming on by default (S-206); assistant:write and the DM's
+#        suggested prompts (S-104); users:read, guests and external people refused (S-209); files opened in the
+#        conversation through the handoff (S-306). From 36c2be0 or later.
+VERSION ?= 0.1.4
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 
