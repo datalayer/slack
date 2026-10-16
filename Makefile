@@ -13,7 +13,12 @@
 #        conversation through the handoff (S-306). From 36c2be0 or later.
 # 0.1.5: the Stop control for a streamed answer, the stopper named (S-205, S-206; migration 007 stopped_by);
 #        every setting named DATALAYER_SLACK_* (the chart since helm 5f9c25f passes only those). From b13d5a5 or later.
-VERSION ?= 0.1.5
+# 0.1.6: Open in Datalayer mints a one-use handoff on each press, answer links held to HTTPS (S-306);
+#        Datalayer's channel rules read before each prompt, replaced wholesale (S-403); each person's quiet
+#        or noisy answers on the Home (S-308, migration 008); the dead-letter operator checked at IAM
+#        (S-405, DATALAYER_OPERATOR_KEY); a span per turn with its session and run, exported as OTLP JSON
+#        when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and DATALAYER_OTEL_API_KEY are set (S-101). From e7d7ac2 or later.
+VERSION ?= 0.1.6
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 
