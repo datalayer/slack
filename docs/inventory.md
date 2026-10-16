@@ -112,6 +112,13 @@ Idempotency (`external_turn.replay`) works as follows:
 
 This repo sends the Slack `event_id` as both.
 
+**The LOOP session handoff** is `POST /loop/sessions/{session_id}/handoff`
+in `agent_runtimes/routes/loop.py`. It mints a one-use code that hands a
+terminal's session to a browser. The code is kept in one runtime's memory and
+is not bound to a principal, so _Open in Datalayer_ does not use it. It uses
+ai-agents' `POST /apps/hosts/handoffs` instead, which is bound to the host
+token's person, its target and ten minutes (S-305).
+
 ## 4. AG-UI events (agent-runtimes)
 
 The stream is server-sent AG-UI events. The adapter reads:
