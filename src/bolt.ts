@@ -226,6 +226,10 @@ function boltApp(config: Config, options: BoltAppOptions): App {
   const stateStore = options.stateStore;
   return new App({
     appToken: config.SLACK_APP_TOKEN,
+    // A 429 is rejected to the caller, whose limiter waits Slack's
+    // Retry-After (rate-limit.ts), rather than absorbed by the client
+    // pausing its whole queue (S-206).
+    clientOptions: { rejectRateLimitedCalls: true },
     clientId: oauth ? config.SLACK_CLIENT_ID : undefined,
     clientSecret: oauth ? config.SLACK_CLIENT_SECRET : undefined,
     customRoutes: options.customRoutes,
@@ -336,11 +340,14 @@ export function registerSlackListeners(
     publishHome: async (key, userId, view) => {
       const installation = await service.store.getInstallation(key);
       if (!installation) return;
-      await app.client.views.publish({
-        token: await tokens.token(key),
-        user_id: userId,
-        view: view as Parameters<typeof app.client.views.publish>[0]["view"],
-      });
+      const token = await tokens.token(key);
+      await service.limiter.retry("views.publish", userId, () =>
+        app.client.views.publish({
+          token,
+          user_id: userId,
+          view: view as Parameters<typeof app.client.views.publish>[0]["view"],
+        }),
+      );
     },
   });
   if (parts.consume ?? true) queue.start((job) => worker.handle(job));

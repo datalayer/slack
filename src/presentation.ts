@@ -267,6 +267,11 @@ export class TurnPresentation {
       direct?: boolean;
       /** quiet: one status line; noisy: every tool the turn used, listed (S-308). */
       events?: "quiet" | "noisy";
+      /**
+       * The answer's words were streamed (S-206): these blocks go under them
+       * at `chat.stopStream`, so they carry no answer text or table again.
+       */
+      streamed?: boolean;
     } = {},
   ): SlackMessage {
     const blocks: KnownBlock[] = [];
@@ -276,7 +281,7 @@ export class TurnPresentation {
       (part): part is Extract<AnswerPart, { kind: "citation" }> =>
         part.kind === "citation",
     );
-    for (const part of parts) {
+    for (const part of options.streamed ? [] : parts) {
       if (part.kind === "text")
         blocks.push(...sectionsOf(answerMrkdwn(part.text)));
       if (part.kind === "table") blocks.push(...tableBlocks(part, openUrl));

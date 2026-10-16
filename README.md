@@ -41,8 +41,8 @@ Added on 16 October 2026 (plans/SLACK.md round 1):
   - An edited direct message offers _Send edited text as a new turn_. A deleted one is told that the record stays.
 - **rendering** (`src/semantic.ts`, `src/ag-ui.ts`, `src/presentation.ts`, `src/render.ts`, `src/rate-limit.ts`):
   - The AG-UI stream is reduced to versioned semantic events (`test/contracts/semantic-events.json`).
-  - Answers stream with `chat.startStream` when the port offers it. Otherwise one placeholder is updated at most every 1.5 s.
-  - Calls are spaced per method and channel, and Slack's `Retry-After` is honored on a 429.
+  - Answers stream with `chat.startStream` when the port offers it (`DATALAYER_SLACK_STREAMING`). If Slack refuses to stream there, the turn falls back to one placeholder, updated at most every 1.5 s. Each append carries at most 12,000 characters and a stream at most 38,000, then says once that the rest is in Datalayer. `chat.stopStream` appends only what the stream did not carry (sources, files, the question, the status and the actions), never the answer again; the streamed words are the message's text.
+  - A turn's calls are spaced per method and channel. Every Slack call, cards and private words included, waits Slack's `Retry-After` on a 429: the Web client rejects rate-limited calls (`rejectRateLimitedCalls`) instead of pausing its own queue.
   - Tables are shown as blocks, previewed when large. Citations are safe HTTPS links.
   - A plain-text fallback is always present, and Slack's block limits are kept.
 - **records** (migration `003`): allowances, channel bindings, deliveries, the turn lock, held prompts, archived bindings, and the next application.

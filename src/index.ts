@@ -144,7 +144,8 @@ async function main(): Promise<void> {
     store,
     client,
     keyed,
-    slack,
+    // Cards and their updates wait out a 429 like every other post (S-206).
+    service.slack,
     config.DATALAYER_WEB_URL,
   );
   const role = config.DATALAYER_SLACK_ROLE;

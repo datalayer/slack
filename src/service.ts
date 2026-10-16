@@ -17,7 +17,12 @@ import {
   type QuotaLimits,
 } from "./quotas.js";
 import { stripAppMention } from "./presentation.js";
-import { SlackRateLimiter, systemClock, type Clock } from "./rate-limit.js";
+import {
+  retryingSlackPort,
+  SlackRateLimiter,
+  systemClock,
+  type Clock,
+} from "./rate-limit.js";
 import { TurnRenderer } from "./render.js";
 import { TurnRouting, type Refusal } from "./routing.js";
 import type { SlackMessage, SlackPort } from "./slack-port.js";
@@ -75,12 +80,16 @@ export class SlackAgentService {
   readonly routing: TurnRouting;
   readonly limiter: SlackRateLimiter;
   readonly logger: Logger;
+  /** Slack, every call waiting out a 429 (S-206): what all but a turn's answer posts through. */
+  readonly slack: SlackPort;
+  /** Slack as given: a turn's renderer paces and retries its own calls on it. */
+  readonly #paced: SlackPort;
   readonly #clock: Clock;
 
   constructor(
     readonly store: SlackStore,
     readonly agents: AgentClient,
-    readonly slack: SlackPort,
+    slack: SlackPort,
     readonly webUrl: string,
     /** Who is linked, and how one connects: Datalayer's record, through the host key. */
     readonly links: AccountLinks = new StoreLinks(store),
@@ -88,6 +97,8 @@ export class SlackAgentService {
   ) {
     this.#clock = options.clock ?? systemClock;
     this.limiter = options.limiter ?? new SlackRateLimiter(this.#clock);
+    this.#paced = slack;
+    this.slack = retryingSlackPort(slack, this.limiter);
     this.logger = options.logger ?? new Logger();
     this.routing = new TurnRouting(store, links, webUrl);
   }
@@ -239,7 +250,7 @@ export class SlackAgentService {
           .openUrlOf(turn.sessionId, request)
           .catch(() => this.#sessionUrl(turn.sessionId))
       : this.#sessionUrl(turn.sessionId);
-    const renderer = new TurnRenderer(this.slack, this.limiter, prompt, {
+    const renderer = new TurnRenderer(this.#paced, this.limiter, prompt, {
       askValue: prompt.eventId,
       cadenceMs: this.options.cadenceMs,
       events: this.options.events,

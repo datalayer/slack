@@ -5,6 +5,9 @@
  * again a bounded number of times. Never one call per model token.
  */
 
+import type { SlackInstallationKey, ThreadKey } from "./domain.js";
+import { isDirectChannel, isThreadKey, type SlackPort } from "./slack-port.js";
+
 export interface Clock {
   now(): number;
   sleep(milliseconds: number): Promise<void>;
@@ -60,6 +63,29 @@ export class SlackRateLimiter {
     channelId: string,
     call: () => Promise<T>,
   ): Promise<T> {
+    return this.#call(method, channelId, call, true);
+  }
+
+  /**
+   * Run one Slack call that is not paced (a card, a private word, App Home):
+   * not spaced, but a 429 still waits Slack's `Retry-After`, a bounded number
+   * of times. The Web client rejects rate-limited calls (`bolt.ts`), so this is
+   * where every 429 is seen.
+   */
+  async retry<T>(
+    method: string,
+    channelId: string,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    return this.#call(method, channelId, call, false);
+  }
+
+  async #call<T>(
+    method: string,
+    channelId: string,
+    call: () => Promise<T>,
+    spaced: boolean,
+  ): Promise<T> {
     const key = `${method}:${channelId}`;
     for (let attempt = 0; ; attempt += 1) {
       const wait = (this.#next.get(key) ?? 0) - this.clock.now();
@@ -67,7 +93,11 @@ export class SlackRateLimiter {
         this.waits.push(wait);
         await this.clock.sleep(wait);
       }
-      this.#next.set(key, this.clock.now() + (METHOD_SPACING[method] ?? 1_000));
+      if (spaced)
+        this.#next.set(
+          key,
+          this.clock.now() + (METHOD_SPACING[method] ?? 1_000),
+        );
       try {
         return await call();
       } catch (error) {
@@ -78,4 +108,41 @@ export class SlackRateLimiter {
       }
     }
   }
+}
+
+/**
+ * A Slack port whose every call waits out a 429 (`SlackRateLimiter.retry`):
+ * what everything but a turn's answer posts through. A turn's answer is paced
+ * by its renderer on the port itself (`render.ts`).
+ */
+export function retryingSlackPort(
+  port: SlackPort,
+  limiter: SlackRateLimiter,
+): SlackPort {
+  const streaming = port.streaming;
+  const channelOf = (key: SlackInstallationKey | ThreadKey, userId: string) =>
+    isThreadKey(key) ? key.channelId : userId;
+  return {
+    postDirect: (key, userId, message) =>
+      limiter.retry("chat.postMessage", userId, () =>
+        port.postDirect(key, userId, message),
+      ),
+    postPrivate: (key, userId, message) =>
+      limiter.retry(
+        isThreadKey(key) && !isDirectChannel(key.channelId)
+          ? "chat.postEphemeral"
+          : "chat.postMessage",
+        channelOf(key, userId),
+        () => port.postPrivate(key, userId, message),
+      ),
+    postThread: (key, message) =>
+      limiter.retry("chat.postMessage", key.channelId, () =>
+        port.postThread(key, message),
+      ),
+    updateMessage: (key, ts, message) =>
+      limiter.retry("chat.update", key.channelId, () =>
+        port.updateMessage(key, ts, message),
+      ),
+    streaming,
+  };
 }
