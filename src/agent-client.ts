@@ -2,6 +2,7 @@ import {
   hostSessionUid,
   type HostShape,
   type Place,
+  type TurnProvenance,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
 import type { TurnRequest } from "./domain.js";
@@ -55,10 +56,24 @@ export function targetOf(request: TurnRequest): Record<string, unknown> {
   };
 }
 
+/**
+ * Where a turn comes from, on the turn itself (plans/DISCORD.md §4.3, §4.4;
+ * SLACK S-204): Slack, the place, the thread and the Slack event.
+ */
+export function provenanceOf(request: TurnRequest): TurnProvenance {
+  return {
+    host_kind: "slack",
+    message_id: request.externalEventId,
+    place: placeOf(request),
+    thread: request.provenance.threadTs,
+  };
+}
+
 /** Slack's shape, injected into the shared agent client and exchange. */
 export const slackShape: HostShape<TurnRequest["provenance"]> = {
   notBound: NOT_BOUND,
   placeOf,
+  provenanceOf,
   sessionUidOf,
   targetOf,
 };

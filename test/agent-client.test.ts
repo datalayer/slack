@@ -21,7 +21,11 @@ const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
     request: Record<string, string>;
     response_keys: string[];
   };
-  external_turn: { start_request: Record<string, string> };
+  external_turn: {
+    start_request: Record<string, string>;
+    optional_request: Record<string, unknown>;
+    provenance_limit_bytes: number;
+  };
   headers: Record<string, string>;
 };
 
@@ -167,9 +171,28 @@ describe("Datalayer agent client", () => {
     expect(start?.headers.authorization).toBe("Bearer host-token");
     expect(start?.headers[contracts.headers.idempotency_key!]).toBe("Ev0123");
     expect(Object.keys(start?.body as object).sort()).toEqual(
-      Object.keys(contracts.external_turn.start_request)
+      [
+        ...Object.keys(contracts.external_turn.start_request),
+        ...Object.keys(contracts.external_turn.optional_request),
+      ]
         .filter((key) => key !== "user_token")
         .sort(),
+    );
+    // Where the turn comes from, on the turn itself (DISCORD DC-006, §4.4).
+    const provenance = (start?.body as { provenance: object }).provenance;
+    expect(provenance).toEqual({
+      host_kind: "slack",
+      message_id: "Ev0123",
+      place: { id: "C0", kind: "channel" },
+      thread: "1700000000.000001",
+    });
+    expect(Object.keys(provenance).sort()).toEqual(
+      Object.keys(
+        contracts.external_turn.optional_request.provenance as object,
+      ).sort(),
+    );
+    expect(JSON.stringify(provenance).length).toBeLessThanOrEqual(
+      contracts.external_turn.provenance_limit_bytes,
     );
     expect(bind?.method).toBe("PUT");
     expect(bind?.headers[contracts.headers.host_key!]).toBe("dlhk_key");
@@ -236,8 +259,15 @@ describe("Datalayer agent client", () => {
       { kind: "completion", text: "Option B is safer." },
     ]);
     expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "GET"]);
+    // A message carries the turn's provenance too (DISCORD DC-006).
     expect(calls[1]?.body).toEqual({
       external_event_id: "Ev0123",
+      provenance: {
+        host_kind: "slack",
+        message_id: "Ev0123",
+        place: { id: "C0", kind: "channel" },
+        thread: "1700000000.000001",
+      },
       text: "Summarize the launch risks",
     });
   });
