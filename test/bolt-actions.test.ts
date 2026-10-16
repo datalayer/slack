@@ -117,7 +117,7 @@ describe("Use another application through the Bolt handlers (S-208)", () => {
       message: { thread_ts: "1.0", ts: "2.0" },
       user: { id: "U1", team_id: "T1" },
     });
-    const selector = slack.of("private").at(-1)?.message as {
+    const selector = slack.of("private").at(-1)?.message as unknown as {
       blocks: KnownBlock[];
     };
     const option = JSON.stringify(selector.blocks).match(
