@@ -423,8 +423,10 @@ export class TurnPresentation {
         : this.#asking
           ? `${this.#answer ? `${this.#answer}\n\n` : ""}${this.#asking.prompt}`
           : this.#answer || this.#status;
+    // Escaped like the blocks: the notification text never pings
+    // <!channel> or anyone the answer happens to spell out.
     return bounded(
-      words.replace(/\s+\n/g, "\n").trim() || "Working…",
+      escapeSlack(words.replace(/\s+\n/g, "\n").trim() || "Working…"),
       SLACK_LIMITS.fallbackText,
     );
   }

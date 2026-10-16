@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { createBoltApp } from "../src/bolt.js";
 import { readConfig } from "../src/config.js";
-import { OPEN_ACTION, THREAD_MENU_ACTION } from "../src/presentation.js";
+import {
+  OPEN_ACTION,
+  THREAD_MENU_ACTION,
+  TurnPresentation,
+} from "../src/presentation.js";
 import {
   RateLimitedError,
   retryingSlackPort,
@@ -117,6 +121,17 @@ describe("a streamed answer (S-206, the review of 16 October 2026)", () => {
     const { renderer } = streamed(slack);
     await expect(renderer.begin()).rejects.toThrow("socket hang up");
     expect(slack.of("chat.postMessage")).toHaveLength(0);
+  });
+});
+
+describe("the plain-text fallback (S-206)", () => {
+  it("is escaped like the blocks, so it never pings a channel", () => {
+    const turn = new TurnPresentation();
+    turn.apply({ kind: "text", text: "Tell <!channel> & <@U9> now" });
+    turn.apply({ kind: "completion" });
+    const text = turn.message(OPEN).text;
+    expect(text).toBe("Tell &lt;!channel&gt; &amp; &lt;@U9&gt; now");
+    expect(text).not.toContain("<!channel>");
   });
 });
 
