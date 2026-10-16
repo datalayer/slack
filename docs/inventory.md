@@ -52,6 +52,20 @@ The header is `X-Datalayer-Host-Key` (fixture `headers.host_key`).
 - the deployments in the link preview (S-103);
 - a one-use handoff to an exact session or approval (S-305).
 
+All three were closed in services dccb4fa7 (ai-agents 0.0.71, live on r1 on
+16 October 2026):
+
+- `PATCH /apps/hosts/{uid}` takes `channels`, `direct_only` and `paused`;
+- the exchange takes `place`;
+- the preview names `deployments`;
+- `POST /apps/hosts/handoffs` creates a handoff, and `…/handoffs/redeem`
+  redeems it.
+
+A drill on r1 showed one more gap. For an application that signs its users
+(D-21), the exchange answers 502: IAM refuses the owner key of a kept runtime
+when it reads the user secret ("This key of a kept runtime was minted to read
+no secret").
+
 ## 2. The host credential exchange (ai-agents and common)
 
 `POST /apps/hosts/self/token` (contract key `exchange`) is called with the host
@@ -190,7 +204,26 @@ not the web's conversation state. It is pinned by
 agent-runtimes emits. If agent-runtimes renames an event, the fixture and this
 reducer change in the same pull request.
 
-## 9. Owners
+## 9. Core's portable clients (tech/datalayer/core)
+
+`@datalayer/core` 1.2.20 has no `exports` map. Its production dependencies
+include `@jupyterlab/*`, `@lumino/*`, `@datalayer/jupyter-react` and
+`@datalayer/jupyter-lexical`, so it fails the same gate as agent-runtimes.
+The adapter therefore uses none of its clients. It speaks the HTTP contracts
+above directly (`src/host-client.ts`, `src/agent-client.ts`) and validates
+every answer with zod against `contracts.json`.
+
+Reused only as conventions:
+
+- Datalayer's URL layout: `/api/ai-agents/v1`, and the session API under the
+  runtime;
+- bearer authentication;
+- the OTEL collector.
+
+A server-safe export of Core's typed client and auth errors is the same
+§4.2 extraction as agent-runtimes'. Nothing in the adapter waits on it.
+
+## 10. Owners
 
 | Area                                                               | Owner                                   |
 | ------------------------------------------------------------------ | --------------------------------------- |
