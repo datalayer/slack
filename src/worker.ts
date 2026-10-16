@@ -2,6 +2,7 @@ import type { DeliveryHandler, DeliveryJob } from "./deliveries.js";
 import type {
   IncomingPrompt,
   SlackInstallationKey,
+  StarterSource,
   ThreadKey,
 } from "./domain.js";
 import { homeView } from "./home.js";
@@ -45,6 +46,8 @@ export class SlackWorker {
         userId: string,
         view: unknown,
       ) => Promise<void>;
+      /** Where App Home reads the default application's starters (S-104). */
+      starters?: StarterSource;
       /** One span per job, its ids pseudonymous (§12.2). */
       tracer?: Tracer;
     }> = {},
@@ -109,6 +112,7 @@ export class SlackWorker {
       this.service.webUrl,
       this.service.links,
       { limit: limits.user, used, window: "hour" },
+      this.parts.starters,
     );
     await this.parts.publishHome?.(key, userId, view);
   }

@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 
+import { z } from "zod";
+
 import { semanticOf, sseEvents, turnOf } from "./ag-ui.js";
-import type { TurnRequest, TurnStream } from "./domain.js";
+import type {
+  SlackInstallationKey,
+  Starter,
+  StarterSource,
+  TurnRequest,
+  TurnStream,
+} from "./domain.js";
 import { HostRefusedError } from "./host-client.js";
 import type { SemanticEvent } from "./semantic.js";
 import {
@@ -184,6 +192,59 @@ export class DevelopmentCredentials implements HostCredentials {
       deploymentUid: request.applicationId,
       sessionApiUrl: `${kept.url.replace(/\/+$/, "")}/api/v1/apps/sessions`,
     };
+  }
+}
+
+/** What `GET /api/v1/apps/current` answers that a host reads: the application's starters. */
+const currentAppSchema = z.object({
+  starters: z.array(z.object({ label: z.string(), message: z.string() })),
+});
+
+/**
+ * An application's starters (S-104), read from its runtime as the linked
+ * person: the host credential exchange (no place: App Home is private to
+ * them), then `GET /api/v1/apps/current` beside the session API it answers.
+ * A runtime that does not answer starters is refused (fail fast).
+ */
+export class HostStarters implements StarterSource {
+  constructor(
+    readonly apiUrl: string,
+    readonly keyed: HostKeyCredentials,
+    readonly hostKeyOf: (
+      key: SlackInstallationKey,
+    ) => Promise<string | undefined>,
+    readonly fetchImplementation: typeof fetch = fetch,
+  ) {}
+
+  async startersOf(
+    key: SlackInstallationKey,
+    slackUserId: string,
+    applicationId: string,
+  ): Promise<readonly Starter[]> {
+    const hostKey = await this.hostKeyOf(key);
+    if (!hostKey) throw new Error(NOT_BOUND);
+    const exchanged = await this.keyed.exchangeFor({
+      deploymentUid: applicationId,
+      externalUserId: slackUserId,
+      hostKey,
+    });
+    const sessions = exchanged.session_api.url.replace(/\/+$/, "");
+    assertTrustedStreamUrl(this.apiUrl, sessions);
+    if (!sessions.endsWith("/api/v1/apps/sessions"))
+      throw new Error(
+        "Datalayer answered a session API that is not an application runtime's.",
+      );
+    const response = await this.fetchImplementation(
+      `${sessions.slice(0, -"/sessions".length)}/current`,
+      { headers: { authorization: `Bearer ${exchanged.access_token}` } },
+    );
+    if (!response.ok)
+      throw new HostRefusedError(
+        response.status,
+        "refused",
+        "The application did not say what it suggests asking",
+      );
+    return currentAppSchema.parse(await response.json()).starters;
   }
 }
 

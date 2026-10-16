@@ -1,8 +1,8 @@
 import type { HomeView, KnownBlock } from "@slack/types";
 
-import type { SlackInstallationKey } from "./domain.js";
+import type { SlackInstallationKey, Starter, StarterSource } from "./domain.js";
 import { StoreLinks, type AccountLinks } from "./host-installations.js";
-import { escapeSlack } from "./presentation.js";
+import { bounded, escapeSlack } from "./presentation.js";
 import type { SlackStore } from "./store.js";
 
 export const CONNECT_ACTION = "datalayer_connect_account";
@@ -18,7 +18,46 @@ export const HOME_WORDS = {
   support: "Get help",
   privacy:
     "Datalayer reads direct messages and messages that mention the app. It does not read ambient channel history, and Slack data is not used to train models.",
+  tryAsking: "Try asking",
+  startersUnread:
+    "What it suggests asking could not be read from Datalayer just now. Open this Home again later.",
 } as const;
+
+/** How many of an application's starters App Home suggests. */
+export const HOME_STARTERS = 5;
+
+/** The starters App Home suggests: the default application's, read as this person. */
+function startersBlocks(
+  name: string,
+  starters: readonly Starter[] | "unread",
+): KnownBlock[] {
+  if (starters === "unread")
+    return [
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: HOME_WORDS.startersUnread }],
+      },
+    ];
+  if (starters.length === 0) return [];
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: bounded(
+          `*${HOME_WORDS.tryAsking} ${escapeSlack(name)}*\n${starters
+            .slice(0, HOME_STARTERS)
+            .map(
+              (starter) =>
+                `• *${escapeSlack(starter.label)}*: ${escapeSlack(bounded(starter.message, 400))}`,
+            )
+            .join("\n")}`,
+          3_000,
+        ),
+      },
+    },
+  ];
+}
 
 /** A usage line for App Home (S-404): this person's turns against their quota. */
 export type HomeUsage = Readonly<{
@@ -41,6 +80,8 @@ export async function homeView(
   webUrl: string,
   links: AccountLinks = new StoreLinks(store),
   usage?: HomeUsage,
+  /** Where the default application's starters are read (S-104), for a connected person. */
+  starters?: StarterSource,
 ): Promise<HomeView> {
   const [link, applicationId, allowances] = await Promise.all([
     links.linkOf(key, slackUserId),
@@ -56,6 +97,13 @@ export async function homeView(
   const defaultName =
     allowances.find((one) => one.applicationId === applicationId)?.name ??
     applicationId;
+  // Said when they cannot be read, never silently left out.
+  const suggested: readonly Starter[] | "unread" =
+    connected && applicationId && starters
+      ? await starters
+          .startersOf(key, slackUserId, applicationId)
+          .catch(() => "unread" as const)
+      : [];
 
   const buttons: KnownBlock = {
     type: "actions",
@@ -159,6 +207,7 @@ export async function homeView(
         ],
       },
       ...applications,
+      ...startersBlocks(defaultName ?? "", suggested),
       ...(usage
         ? [
             {

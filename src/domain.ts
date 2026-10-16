@@ -220,3 +220,15 @@ export function externalIdOf(value: SlackInstallationKey): string {
 export function threadKey(value: ThreadKey): string {
   return `${installationKey(value)}:${value.channelId}:${value.threadTs}`;
 }
+
+/** One of an application's starters (S-104): the words shown, and the message it suggests asking. */
+export type Starter = Readonly<{ label: string; message: string }>;
+
+/** Where an application's starters are read, as one linked person of one workspace. */
+export interface StarterSource {
+  startersOf(
+    key: SlackInstallationKey,
+    slackUserId: string,
+    applicationId: string,
+  ): Promise<readonly Starter[]>;
+}

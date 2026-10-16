@@ -199,11 +199,19 @@ describe("Block Kit snapshots and limits (S-406)", () => {
 
   it("App Home, connected and not", async () => {
     const store = await storeWithApplications();
-    const connected = await homeView(store, key, "U1", WEB, new FakeLinks(), {
-      limit: 30,
-      used: 3,
-      window: "hour",
-    });
+    const connected = await homeView(
+      store,
+      key,
+      "U1",
+      WEB,
+      new FakeLinks(),
+      { limit: 30, used: 3, window: "hour" },
+      {
+        startersOf: async () => [
+          { label: "Compare", message: "Compare the two launch options." },
+        ],
+      },
+    );
     const unlinked = await homeView(
       store,
       key,

@@ -1,6 +1,7 @@
 import {
   DevelopmentCredentials,
   HostKeyCredentials,
+  HostStarters,
   HttpAgentClient,
   InstallationCredentials,
   type HostKeyLookup,
@@ -151,6 +152,9 @@ async function main(): Promise<void> {
   const role = config.DATALAYER_SLACK_ROLE;
   registerSlackListeners(app, config, service, queue, {
     consume: role !== "ingress",
+    starters: new HostStarters(config.DATALAYER_API_URL, keyed, (key) =>
+      hosts.hostKeyOf(key),
+    ),
     tracer: new LogTracer(new Logger()),
     deliveries,
     hosts,

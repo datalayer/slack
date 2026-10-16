@@ -12,7 +12,11 @@ import type { WebClient } from "@slack/web-api";
 
 import { BotTokens } from "./bot-tokens.js";
 import type { Config } from "./config.js";
-import type { SlackInstallationKey, ThreadKey } from "./domain.js";
+import type {
+  SlackInstallationKey,
+  StarterSource,
+  ThreadKey,
+} from "./domain.js";
 import {
   APPROVE_ACTION,
   buttonValueOf,
@@ -310,6 +314,8 @@ export type SlackListenerParts = Readonly<{
   /** The workspace's bot token, refreshed when it rotates (S-102). */
   tokens?: BotTokens;
   tracer?: Tracer;
+  /** Where App Home reads the default application's starters (S-104). */
+  starters?: StarterSource;
 }>;
 
 const installationKeyOf = (body: {
@@ -337,6 +343,7 @@ export function registerSlackListeners(
     deliveries: parts.deliveries,
     hosts: parts.hosts,
     tracer: parts.tracer,
+    starters: parts.starters,
     publishHome: async (key, userId, view) => {
       const installation = await service.store.getInstallation(key);
       if (!installation) return;

@@ -157,3 +157,101 @@ describe("App Home (S-104)", () => {
     expect(JSON.stringify(after)).toContain("Not connected");
   });
 });
+
+describe("App Home's suggestions (S-104)", () => {
+  const starters = {
+    asked: [] as Array<{ applicationId: string; userId: string }>,
+    async startersOf(_key: unknown, userId: string, applicationId: string) {
+      this.asked.push({ applicationId, userId });
+      return [
+        { label: "Compare", message: "Compare the two launch options." },
+        { label: "Risks <b>", message: "What are the risks?" },
+      ];
+    },
+  };
+
+  it("suggests the default application's starters, read as this person", async () => {
+    starters.asked.length = 0;
+    const view = await homeView(
+      await storeWithApplications(),
+      key,
+      "U1",
+      "https://datalayer.ai",
+      linked,
+      undefined,
+      starters,
+    );
+    const text = JSON.stringify(view);
+    expect(starters.asked).toEqual([{ applicationId: "dep-1", userId: "U1" }]);
+    expect(text).toContain("*Try asking Launch Review*");
+    expect(text).toContain("• *Compare*: Compare the two launch options.");
+    expect(text).toContain("• *Risks &lt;b&gt;*: What are the risks?");
+  });
+
+  it("asks nothing for a person not connected", async () => {
+    starters.asked.length = 0;
+    const view = await homeView(
+      await storeWithApplications(),
+      key,
+      "U1",
+      "https://datalayer.ai",
+      {
+        connectUrlOf: async () => "https://datalayer.ai/hosts/link?code=one",
+        linkOf: async () => undefined,
+      },
+      undefined,
+      starters,
+    );
+    expect(starters.asked).toEqual([]);
+    expect(JSON.stringify(view)).not.toContain(HOME_WORDS.tryAsking);
+  });
+
+  it("says so when the starters cannot be read, rather than leaving them out", async () => {
+    const view = await homeView(
+      await storeWithApplications(),
+      key,
+      "U1",
+      "https://datalayer.ai",
+      linked,
+      undefined,
+      {
+        startersOf: async () => {
+          throw new Error("Datalayer refused the host credential exchange");
+        },
+      },
+    );
+    const text = JSON.stringify(view);
+    expect(text).toContain(HOME_WORDS.startersUnread);
+    expect(text).not.toContain(HOME_WORDS.tryAsking);
+  });
+
+  it("shows at most five, and none when the application has none", async () => {
+    const many = await homeView(
+      await storeWithApplications(),
+      key,
+      "U1",
+      "https://datalayer.ai",
+      linked,
+      undefined,
+      {
+        startersOf: async () =>
+          Array.from({ length: 8 }, (_, index) => ({
+            label: `S${index}`,
+            message: `M${index}`,
+          })),
+      },
+    );
+    expect(JSON.stringify(many)).toContain("*S4*");
+    expect(JSON.stringify(many)).not.toContain("*S5*");
+    const none = await homeView(
+      await storeWithApplications(),
+      key,
+      "U1",
+      "https://datalayer.ai",
+      linked,
+      undefined,
+      { startersOf: async () => [] },
+    );
+    expect(JSON.stringify(none)).not.toContain(HOME_WORDS.tryAsking);
+  });
+});

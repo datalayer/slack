@@ -46,6 +46,14 @@ Launch Review",
       "type": "section",
     },
     {
+      "text": {
+        "text": "*Try asking Launch Review*
+• *Compare*: Compare the two launch options.",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
       "elements": [
         {
           "text": "You asked 3 of 30 questions this hour.",

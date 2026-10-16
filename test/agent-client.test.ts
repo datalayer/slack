@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertTrustedStreamUrl,
   HostKeyCredentials,
+  HostStarters,
   HttpAgentClient,
   InstallationCredentials,
   NOT_BOUND,
@@ -272,5 +273,71 @@ describe("Datalayer agent client", () => {
       new InstallationCredentials(unbound, development).forTurn(request),
     ).resolves.toMatchObject({ accessToken: "dev", bindable: false });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("an application's starters (S-104)", () => {
+  const installation = { appId: "A0", teamId: "T0" };
+  const current = `${API}/rt-1/api/v1/apps/current`;
+
+  function startersOf(answers: Record<string, () => Response>) {
+    const { calls, fetchImplementation } = wire({
+      [`POST ${API}/api/ai-agents/v1/apps/hosts/self/token`]: () =>
+        Response.json(exchanged),
+      ...answers,
+    });
+    const keyed = new HostKeyCredentials(
+      API,
+      async () => "dlhk_key",
+      fetchImplementation,
+    );
+    const source = new HostStarters(
+      API,
+      keyed,
+      async () => "dlhk_key",
+      fetchImplementation,
+    );
+    return { calls, source };
+  }
+
+  it("reads them from the runtime beside its session API, as the linked person, with no place", async () => {
+    const { calls, source } = startersOf({
+      [`GET ${current}`]: () =>
+        Response.json({
+          id: "desk",
+          starters: [{ label: "Compare", message: "Compare the options." }],
+        }),
+    });
+    await expect(
+      source.startersOf(installation, "U0ALICE", "dep-1"),
+    ).resolves.toEqual([{ label: "Compare", message: "Compare the options." }]);
+    expect(calls[0]?.body).toEqual({
+      deployment_uid: "dep-1",
+      external_user_id: "U0ALICE",
+    });
+    expect(calls[1]?.headers.authorization).toBe("Bearer host-token");
+  });
+
+  it("refuses a runtime that answers no starters, or refuses", async () => {
+    const old = startersOf({
+      [`GET ${current}`]: () => Response.json({ id: "desk" }),
+    });
+    await expect(
+      old.source.startersOf(installation, "U0ALICE", "dep-1"),
+    ).rejects.toThrow();
+    const refusing = startersOf({
+      [`GET ${current}`]: () => new Response("", { status: 403 }),
+    });
+    await expect(
+      refusing.source.startersOf(installation, "U0ALICE", "dep-1"),
+    ).rejects.toThrow(/did not say what it suggests asking \(403\)/);
+  });
+
+  it("refuses a workspace never bound", async () => {
+    const keyed = new HostKeyCredentials(API, async () => undefined);
+    const source = new HostStarters(API, keyed, async () => undefined);
+    await expect(
+      source.startersOf(installation, "U0ALICE", "dep-1"),
+    ).rejects.toThrow(NOT_BOUND);
   });
 });
