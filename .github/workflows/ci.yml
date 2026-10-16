@@ -53,6 +53,17 @@ jobs:
         run: npm run bundle
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
+      # The SBOM of the production dependencies (S-502, §10): CycloneDX,
+      # checked to name each of package.json's dependencies, kept 90 days.
+      - name: SBOM (CycloneDX)
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --omit dev --ignore-npm-errors --output-format JSON --output-file sbom.cdx.json
+          node scripts/check-sbom.mjs sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
 
   secrets:
     runs-on: ubuntu-latest
