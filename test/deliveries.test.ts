@@ -625,9 +625,9 @@ describe("Open in Datalayer, a link per press (S-306)", () => {
   }
   const linkOf = (message?: SlackMessage) =>
     (
-      message?.blocks?.find((block) => block.type === "actions") as
-        | { elements: Array<{ action_id?: string; url?: string }> }
-        | undefined
+      message?.blocks?.find(
+        (block) => (block as { type?: string }).type === "actions",
+      ) as { elements: Array<{ action_id?: string; url?: string }> } | undefined
     )?.elements[0];
 
   it("mints a new handoff on every press, as the presser, said privately in a channel", async () => {

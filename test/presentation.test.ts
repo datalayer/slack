@@ -92,9 +92,9 @@ describe("result links (S-306, decided by the user 16 October 2026)", () => {
     presentation.apply({ kind: "completion", text: "Done." });
     const actions = presentation
       .message(OPEN)
-      .blocks?.find((block) => block.type === "actions") as
-      | { elements: Array<Record<string, unknown>> }
-      | undefined;
+      .blocks?.find(
+        (block) => (block as { type?: string }).type === "actions",
+      ) as { elements: Array<Record<string, unknown>> } | undefined;
     const open = actions?.elements.find(
       (element) => element.action_id === OPEN_ACTION,
     );
