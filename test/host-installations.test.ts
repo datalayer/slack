@@ -365,3 +365,144 @@ describe("Uninstall", () => {
     await expect(store.getInstallation(active)).resolves.toBeUndefined();
   });
 });
+
+describe("What the installation allows, read from Datalayer (S-104, S-105, S-403)", () => {
+  it("keeps the allowed applications, the default, the channel rules and the pause", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      ...active,
+      datalayerHostKey: KEY,
+      datalayerHostUid: "inst-1",
+    });
+    const { calls, fetchImplementation } = wire({
+      [route("self")]: () =>
+        Response.json({
+          success: true,
+          host: {
+            uid: "inst-1",
+            account_uid: "alice",
+            state: "active",
+            default_deployment: "dep-1",
+            deployments: [
+              {
+                uid: "dep-1",
+                app_uid: "app-1",
+                app_name: "Launch Review",
+                state: "live",
+                kept: true,
+              },
+              {
+                uid: "dep-2",
+                app_uid: "app-2",
+                app_name: "Desk",
+                state: "live",
+                kept: true,
+              },
+              {
+                uid: "dep-3",
+                app_uid: "app-3",
+                app_name: "Off",
+                state: "live",
+                kept: false,
+              },
+            ],
+            channels: [
+              { id: "C0DENY", state: "deny" },
+              { id: "C0DESK", state: "allow", deployment: "dep-2" },
+            ],
+            direct_only: ["dep-2"],
+            paused: false,
+          },
+        }),
+    });
+    await hostsOver(store, fetchImplementation).refreshAllowances(active);
+    expect(calls[0]?.headers[contracts.headers.host_key!]).toBe(KEY);
+    const allowed = await store.getAllowances(active);
+    expect(
+      allowed.map(
+        ({ applicationId, channelPolicy, enabled, isDefault, name }) => ({
+          applicationId,
+          channelPolicy,
+          enabled,
+          isDefault,
+          name,
+        }),
+      ),
+    ).toEqual([
+      {
+        applicationId: "dep-1",
+        channelPolicy: "channels",
+        enabled: true,
+        isDefault: true,
+        name: "Launch Review",
+      },
+      {
+        applicationId: "dep-2",
+        channelPolicy: "direct-only",
+        enabled: true,
+        isDefault: false,
+        name: "Desk",
+      },
+      // Not kept always on: it answers nobody, so it is not offered.
+      {
+        applicationId: "dep-3",
+        channelPolicy: "channels",
+        enabled: false,
+        isDefault: false,
+        name: "Off",
+      },
+    ]);
+    await expect(store.getDefaultApplication(active)).resolves.toBe("dep-1");
+    await expect(
+      store.getChannelBinding(active, "C0DENY"),
+    ).resolves.toMatchObject({ state: "deny" });
+    await expect(
+      store.getChannelBinding(active, "C0DESK"),
+    ).resolves.toMatchObject({ applicationId: "dep-2", state: "allow" });
+  });
+
+  it("offers nothing while its owner paused it", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      ...active,
+      datalayerHostKey: KEY,
+      datalayerHostUid: "inst-1",
+    });
+    const { fetchImplementation } = wire({
+      [route("self")]: () =>
+        Response.json({
+          success: true,
+          host: {
+            uid: "inst-1",
+            state: "active",
+            default_deployment: "dep-1",
+            deployments: [
+              { uid: "dep-1", app_name: "Launch Review", kept: true },
+            ],
+            paused: true,
+          },
+        }),
+    });
+    await hostsOver(store, fetchImplementation).refreshAllowances(active);
+    expect(
+      (await store.getAllowances(active)).every((one) => !one.enabled),
+    ).toBe(true);
+  });
+
+  it("unlinks a person at Datalayer, with the installation's key", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      ...active,
+      datalayerHostKey: KEY,
+      datalayerHostUid: "inst-1",
+    });
+    const { calls, fetchImplementation } = wire({
+      [route("unlink", { external_user_id: "U1" })]: () =>
+        Response.json({ success: true, revoked: 1 }),
+    });
+    await expect(
+      hostsOver(store, fetchImplementation).unlink(active, "U1"),
+    ).resolves.toBe(true);
+    expect(calls[0]?.headers[contracts.headers.host_key!]).toBe(KEY);
+  });
+});

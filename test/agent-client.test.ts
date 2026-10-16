@@ -16,7 +16,11 @@ import type { SemanticEvent } from "../src/semantic.js";
 const contracts = JSON.parse(
   readFileSync(new URL("./contracts/contracts.json", import.meta.url), "utf8"),
 ) as {
-  exchange: { request: Record<string, string>; response_keys: string[] };
+  exchange: {
+    optional_request: Record<string, unknown>;
+    request: Record<string, string>;
+    response_keys: string[];
+  };
   external_turn: { start_request: Record<string, string> };
   headers: Record<string, string>;
 };
@@ -147,13 +151,18 @@ describe("Datalayer agent client", () => {
     expect(session).toMatch(/^[A-Za-z0-9_-]{8,128}$/);
     const [exchange, start, bind] = calls;
     expect(exchange?.headers[contracts.headers.host_key!]).toBe("dlhk_key");
+    // Where the turn is asked from: Datalayer refuses a denied channel at once.
     expect(exchange?.body).toEqual({
       deployment_uid: "dep-1",
       external_user_id: "U0ALICE",
+      place: { id: "C0", kind: "channel" },
     });
-    expect(Object.keys(contracts.exchange.request).sort()).toEqual(
-      Object.keys(exchange?.body as object).sort(),
-    );
+    expect(
+      Object.keys({
+        ...contracts.exchange.request,
+        ...contracts.exchange.optional_request,
+      }).sort(),
+    ).toEqual(Object.keys(exchange?.body as object).sort());
     expect(start?.headers.authorization).toBe("Bearer host-token");
     expect(start?.headers[contracts.headers.idempotency_key!]).toBe("Ev0123");
     expect(Object.keys(start?.body as object).sort()).toEqual(

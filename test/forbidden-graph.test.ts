@@ -67,7 +67,8 @@ describe("the forbidden production graph (S-005)", () => {
     const names = installedGraph(tree).map((one) => one.name);
     expect(names).toContain("@slack/bolt");
     expect(names).not.toContain("vitest");
-  });
+    // npm ls walks the whole monorepo from a workspace member: 7-9 s.
+  }, 60_000);
 
   it("passes on this service's sources and reads every kind of import", async () => {
     await expect(forbiddenInSources("src")).resolves.toEqual([]);

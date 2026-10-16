@@ -147,6 +147,13 @@ async function setup(answers: Record<string, () => Response>) {
     [route("exchange")]: () => Response.json(exchanged),
     [route("ack", { delivery_uid: "d1" })]: () =>
       Response.json({ success: true }),
+    [route("handoff")]: () =>
+      Response.json({
+        success: true,
+        code: "dlho_card",
+        expires_in: 600,
+        path: "/hosts/open?code=dlho_card",
+      }),
     ...answers,
   });
   const client = new DatalayerHostClient(API, fetchImplementation);
@@ -557,5 +564,28 @@ describe("approval.decided and turn.completed", () => {
     await expect(store.getThread(thread)).resolves.toMatchObject({
       pendingMessageTs: undefined,
     });
+  });
+});
+
+describe("Review in Datalayer (S-305)", () => {
+  it("opens the exact approval through a one-use handoff made as its person", async () => {
+    const { calls, handler, slack } = await setup({
+      [route("presentation", { approval_id: "ap-1" })]: () =>
+        Response.json({
+          success: true,
+          presentation: {
+            ...presentation,
+            host_may_decide: false,
+            reasons: ["publish"],
+          },
+        }),
+    });
+    await handler.receive(requested("D0ALICE"));
+    const made = calls.find((call) => call.key === route("handoff"));
+    expect(made?.body).toEqual({ kind: "approval", target: "ap-1" });
+    expect(made?.headers.authorization).toBe("Bearer host-token");
+    const card = JSON.stringify(slack.thread[0]?.message.blocks);
+    expect(card).toContain(`${WEB}/hosts/open?code=dlho_card`);
+    expect(card).not.toContain(`${WEB}/tool-approvals"`);
   });
 });

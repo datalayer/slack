@@ -39,6 +39,18 @@ export type HostKeyLookup = (
   request: TurnRequest,
 ) => Promise<string | undefined>;
 
+/** Where a host asks from (`exchange.optional_request.place`): a channel, or a direct conversation. */
+export type Place = Readonly<{ kind: "channel" | "direct"; id: string }>;
+
+/** A turn's place: its Slack conversation, a direct message's channel starting with D. */
+export function placeOf(request: TurnRequest): Place {
+  const { channelId } = request.provenance;
+  return {
+    id: channelId,
+    kind: channelId.startsWith("D") ? "direct" : "channel",
+  };
+}
+
 /** Said when a workspace has no host key: it was installed without Datalayer's code. */
 export const NOT_BOUND =
   "This Slack workspace is not connected to Datalayer: install @Datalayer again from the application's Ship tab.";
@@ -62,6 +74,7 @@ export class HostKeyCredentials implements HostCredentials {
       deploymentUid: request.applicationId,
       externalUserId: request.externalUserId,
       hostKey,
+      place: placeOf(request),
     });
   }
 
@@ -70,6 +83,8 @@ export class HostKeyCredentials implements HostCredentials {
     deploymentUid: string;
     externalUserId: string;
     hostKey: string;
+    /** Where the turn is asked from: Datalayer refuses a denied channel at once. */
+    place?: Place;
   }): Promise<HostExchange> {
     const response = await this.fetchImplementation(
       `${this.apiUrl}/api/ai-agents/v1/apps/hosts/self/token`,
@@ -77,6 +92,7 @@ export class HostKeyCredentials implements HostCredentials {
         body: JSON.stringify({
           deployment_uid: input.deploymentUid,
           external_user_id: input.externalUserId,
+          ...(input.place ? { place: input.place } : {}),
         }),
         headers: {
           "content-type": "application/json",

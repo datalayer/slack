@@ -7,6 +7,7 @@ import {
   HOST_KEY_HEADER,
   linkCodeSchema,
   linkStateSchema,
+  handoffSchema,
   presentationSchema,
   selfSchema,
   webhookSchema,
@@ -243,6 +244,25 @@ export class DatalayerHostClient {
       { hostKey, method: "POST" },
       z.unknown(),
     );
+  }
+
+  /**
+   * *Open in Datalayer* (S-305): a one-use code for the host token's person
+   * that opens one session or approval after sign-in. Answers the landing's
+   * path that redeems it; never a bearer token in a URL.
+   */
+  async handoff(
+    token: string,
+    kind: "session" | "approval",
+    target: string,
+  ): Promise<{ path: string; expiresIn: number }> {
+    const made = await this.#call(
+      "Datalayer did not make the link",
+      "/apps/hosts/handoffs",
+      { body: { kind, target }, method: "POST", token },
+      handoffSchema,
+    );
+    return { expiresIn: made.expires_in, path: made.path };
   }
 
   /** How an approval is shown, read as the person it waits on (their host token). */

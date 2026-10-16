@@ -67,6 +67,13 @@ export const selfSchema = z.object({
     .loose(),
 });
 
+/** `POST /apps/hosts/handoffs`: a one-use code that opens one session or approval (S-305). */
+export const handoffSchema = z.object({
+  code: z.string().startsWith("dlho_"),
+  expires_in: z.number().int().nonnegative(),
+  path: z.string().startsWith("/hosts/open?code="),
+});
+
 export const linkStateSchema = z.object({
   linked: z.boolean(),
   principal_uid: z.string().optional(),

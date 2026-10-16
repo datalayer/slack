@@ -26,7 +26,10 @@
     "start_session": "POST {session_api.url}",
     "send_message": "POST {session_api.url}/{session_uid}/messages",
     "confirm_link": "POST /api/ai-agents/v1/apps/hosts/links",
-    "preview_link": "GET /api/ai-agents/v1/apps/hosts/links/preview?code={code}"
+    "preview_link": "GET /api/ai-agents/v1/apps/hosts/links/preview?code={code}",
+    "change_host": "PATCH /api/ai-agents/v1/apps/hosts/{uid}",
+    "handoff": "POST /api/ai-agents/v1/apps/hosts/handoffs",
+    "redeem_handoff": "POST /api/ai-agents/v1/apps/hosts/handoffs/redeem"
   },
   "bind": {
     "request": {
@@ -96,7 +99,17 @@
       "scope"
     ],
     "audience": "datalayer:app:host",
-    "max_ttl_seconds": 900
+    "max_ttl_seconds": 900,
+    "optional_request": {
+      "place": {
+        "kind": "channel",
+        "id": "C0"
+      }
+    },
+    "place_kinds": [
+      "channel",
+      "direct"
+    ]
   },
   "whoami": {
     "response_keys": [
@@ -279,5 +292,90 @@
       "success",
       "approval"
     ]
+  },
+  "self": {
+    "host_keys": [
+      "uid",
+      "state",
+      "deployments",
+      "default_deployment",
+      "channels",
+      "direct_only",
+      "paused"
+    ],
+    "deployment_keys": [
+      "uid",
+      "app_uid",
+      "app_name",
+      "state",
+      "kept"
+    ]
+  },
+  "preview": {
+    "response_keys": [
+      "success",
+      "host",
+      "deployments",
+      "external_user_id",
+      "external_user_name",
+      "expires_in"
+    ],
+    "deployment_keys": [
+      "uid",
+      "app_name",
+      "default"
+    ]
+  },
+  "change_host": {
+    "request": {
+      "channels": [
+        {
+          "id": "C0",
+          "state": "deny"
+        },
+        {
+          "id": "C1",
+          "state": "allow",
+          "deployment": "dep-1"
+        }
+      ],
+      "direct_only": [
+        "dep-1"
+      ],
+      "paused": false
+    }
+  },
+  "handoff": {
+    "request": {
+      "kind": "approval",
+      "target": "ap-1"
+    },
+    "kinds": [
+      "session",
+      "approval"
+    ],
+    "response_keys": [
+      "success",
+      "code",
+      "expires_in",
+      "path"
+    ],
+    "code_prefix": "dlho_",
+    "redeem_request": {
+      "code": "dlho_…"
+    },
+    "redeem_response_keys": [
+      "success",
+      "kind",
+      "target",
+      "deployment_uid",
+      "path"
+    ],
+    "refusals": {
+      "unauthenticated": 401,
+      "another_account": 403,
+      "expired": 410,
+      "spent_or_unknown": 404
+    }
   }
 }

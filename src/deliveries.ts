@@ -143,10 +143,16 @@ export class DeliveryHandler {
       exchanged.access_token,
       payload.approval_id,
     );
+    // *Review in Datalayer* opens this very approval, for its person, once (S-305).
+    const opened = await this.client.handoff(
+      exchanged.access_token,
+      "approval",
+      payload.approval_id,
+    );
     const card = approvalCard(presentation, {
       appName: exchanged.deployment.app_name,
       deploymentUid: payload.deployment_uid,
-      reviewUrl: this.reviewUrl,
+      reviewUrl: `${this.webUrl.replace(/\/+$/, "")}${opened.path}`,
     });
     const common = {
       appId: installation.appId,

@@ -217,3 +217,22 @@ describe("the manifests (S-006, S-107)", () => {
     }
   });
 });
+
+describe("the guide, linked where people meet @Datalayer (S-108)", () => {
+  it("links /docs/slack from the OAuth success and failure pages", () => {
+    const source = readFileSync(
+      new URL("../src/bolt.ts", import.meta.url),
+      "utf8",
+    );
+    const pages = [
+      ...source.matchAll(
+        /page\(\s*"@Datalayer (is installed|was not installed)"[\s\S]*?\),\s*\);/g,
+      ),
+    ];
+    expect(pages.map((one) => one[1])).toEqual([
+      "is installed",
+      "was not installed",
+    ]);
+    for (const [page] of pages) expect(page).toContain("/docs/slack");
+  });
+});
