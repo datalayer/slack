@@ -1,7 +1,7 @@
 {
   "name": "@datalayer/slack",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "The @Datalayer Slack application",
   "author": "Datalayer",
   "license": "BSD-3-Clause",
