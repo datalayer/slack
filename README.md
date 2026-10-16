@@ -428,7 +428,9 @@ Apply the idempotent schema migration before starting a release:
 npm run migrate
 ```
 
-The PostgreSQL queue uses `FOR UPDATE SKIP LOCKED`, so multiple workers may process different Slack jobs safely. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes.
+The PostgreSQL queue uses `FOR UPDATE SKIP LOCKED`, so multiple workers may process different Slack jobs safely. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes (a job being worked renews its lease every minute).
+
+Dead jobs are handled with `DATALAYER_OPERATOR=<your name> node lib/dead-letters-cli.js list | replay <id> | payload <id> <reason>`. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept in `slack_job_replays` with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept in `slack_payload_access`, and its credentials are redacted. The operator must be named: the container's user is never taken for one. Not built yet: a separate database role for payload reads, and an operator identity checked against Datalayer.
 
 ## Checks
 

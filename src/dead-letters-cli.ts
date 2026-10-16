@@ -1,5 +1,3 @@
-import { userInfo } from "node:os";
-
 import { createDatabase } from "./database.js";
 import { DeadLetters } from "./dead-letters.js";
 import { PostgresWorkQueue } from "./postgres-queue.js";
@@ -19,7 +17,15 @@ const letters = new DeadLetters(
   database,
   new PostgresWorkQueue<unknown>(database),
 );
-const operator = process.env.DATALAYER_OPERATOR ?? userInfo().username;
+// Who acts is said, never taken from the container's user (`node` in the
+// image): a replay and a payload read are kept with this name (S-405).
+const operator = process.env.DATALAYER_OPERATOR?.trim() ?? "";
+if (!operator) {
+  console.error(
+    "DATALAYER_OPERATOR is required: the name kept with every replay and payload read.",
+  );
+  process.exit(1);
+}
 try {
   if (command === "list") console.table(await letters.list());
   else if (command === "replay" && id)

@@ -9,8 +9,9 @@ import type { PostgresWorkQueue } from "./postgres-queue.js";
  * Dead letters (plans/SLACK.md §9, S-405): jobs that failed five times. By
  * default an operator sees their metadata and a hash of their payload — never
  * the words of a prompt or a delivery. Replaying puts one back to work, once.
- * Reading a payload is privileged: it needs a reason, is recorded in
- * `slack_payload_access` and audited, and its credentials are still redacted.
+ * Reading a payload is privileged: a dead job's only, it needs a reason, is
+ * recorded in `slack_payload_access` and audited, and its credentials are
+ * still redacted. Every replay is kept in `slack_job_replays` with who asked.
  */
 export type DeadLetter = Readonly<{
   id: string;
@@ -49,7 +50,8 @@ export class DeadLetters {
   }
 
   async replay(id: string, operator: string): Promise<boolean> {
-    const replayed = await this.queue.replay(id);
+    if (!operator.trim()) throw new Error("Name who replays the job.");
+    const replayed = await this.queue.replay(id, operator);
     this.logger.audit("admin.changed", {
       by: operator,
       installation: "slack-queue",
@@ -68,6 +70,13 @@ export class DeadLetters {
     if (reason.trim().length < 10)
       throw new Error("Say why the payload is read: ten characters at least.");
     if (!operator.trim()) throw new Error("Name who reads the payload.");
+    // A dead job's only: a live job or an unknown id is refused, and no read
+    // of it is recorded.
+    const payload = await this.queue.payloadOf(id);
+    if (payload === undefined)
+      throw new Error(
+        `Job ${id} is not a dead job: there is no payload to read.`,
+      );
     await this.database.query(
       "INSERT INTO slack_payload_access (job_id, operator, reason) VALUES ($1, $2, $3)",
       [id, operator, reason.slice(0, 1_000)],
@@ -78,6 +87,6 @@ export class DeadLetters {
       job: id,
       reason: "privileged payload access",
     });
-    return redactCredentials(await this.queue.payloadOf(id));
+    return redactCredentials(payload);
   }
 }

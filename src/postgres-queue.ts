@@ -92,19 +92,42 @@ export class PostgresWorkQueue<T> implements WorkQueue<T> {
     }));
   }
 
-  /** Put a dead job back to work: once, by id. */
-  async replay(id: string): Promise<boolean> {
-    const result = await this.database.query(
-      "UPDATE slack_jobs SET state = 'ready', attempts = 0, available_at = now(), last_error = NULL WHERE id = $1 AND state = 'dead'",
-      [id],
-    );
-    return result.rowCount === 1;
+  /**
+   * Put a dead job back to work: once, by id, the replay kept with who asked
+   * in the same transaction (`slack_job_replays`, S-405), refused or not.
+   */
+  async replay(id: string, operator: string): Promise<boolean> {
+    if (!/^\d+$/.test(id)) return false;
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        "UPDATE slack_jobs SET state = 'ready', attempts = 0, available_at = now(), last_error = NULL WHERE id = $1 AND state = 'dead'",
+        [id],
+      );
+      const replayed = result.rowCount === 1;
+      await client.query(
+        "INSERT INTO slack_job_replays (job_id, operator, replayed) VALUES ($1, $2, $3)",
+        [id, operator, replayed],
+      );
+      await client.query("COMMIT");
+      return replayed;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
-  /** A dead job's payload: privileged, read only through the audited tool. */
+  /**
+   * A dead job's payload, and only a dead one's (S-405): a live job, or an id
+   * that is no job, has none to read here.
+   */
   async payloadOf(id: string): Promise<unknown> {
+    if (!/^\d+$/.test(id)) return undefined;
     const result = await this.database.query<{ payload: unknown }>(
-      "SELECT payload FROM slack_jobs WHERE id = $1",
+      "SELECT payload FROM slack_jobs WHERE id = $1 AND state = 'dead'",
       [id],
     );
     return result.rows[0]?.payload;

@@ -191,5 +191,36 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
     await expect(letters.replay(id, "ops")).resolves.toBe(true);
     await expect(letters.replay(id, "ops")).resolves.toBe(false);
     expect(await letters.list()).toEqual([]);
+    // Every replay is kept with who asked, refused or not.
+    const replays = await database.query(
+      "SELECT operator, replayed FROM slack_job_replays WHERE job_id = $1 ORDER BY id",
+      [id],
+    );
+    expect(replays.rows).toEqual([
+      { operator: "ops", replayed: true },
+      { operator: "ops", replayed: false },
+    ]);
+    await expect(letters.replay(id, " ")).rejects.toThrow(/Name who replays/);
+  });
+
+  it("reads a dead job's payload only: a live job or an unknown id is refused, and no read is recorded (S-405)", async () => {
+    const queue = new PostgresWorkQueue<unknown>(database);
+    const live = await database.query<{ id: string }>(
+      "INSERT INTO slack_jobs (payload, state, attempts) VALUES ($1, 'ready', 0) RETURNING id::text",
+      [{ prompt: { text: "a live question" } }],
+    );
+    const letters = new DeadLetters(database, queue, keptLogger().logger);
+    const reads = async () =>
+      (await database.query("SELECT 1 FROM slack_payload_access")).rowCount;
+    const before = await reads();
+    for (const id of [
+      live.rows[0]!.id,
+      "999999999",
+      "1; DROP TABLE slack_jobs",
+    ])
+      await expect(
+        letters.payload(id, "ops", "a customer asked why it failed"),
+      ).rejects.toThrow(/not a dead job/);
+    expect(await reads()).toBe(before);
   });
 });
