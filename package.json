@@ -11,7 +11,7 @@
     "node": ">=20.19.0"
   },
   "config": {
-    "agentRuntimesVersion": "1.5.53"
+    "agentRuntimesVersion": "1.5.55"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -45,7 +45,7 @@
     "zod": "4.6.5"
   },
   "peerDependencies": {
-    "@datalayer/agent-runtimes": ">=1.5.53 <2"
+    "@datalayer/agent-runtimes": ">=1.5.55 <2"
   },
   "peerDependenciesMeta": {
     "@datalayer/agent-runtimes": {
