@@ -30,7 +30,7 @@ import { healthRoutes } from "./health.js";
 import { LOG_SALT } from "./observability.js";
 import { HostInstallations } from "./host-installations.js";
 import { SignedStateStore } from "./oauth-state.js";
-import type { ThreadKey } from "./domain.js";
+import { INBOUND_PURGE_MS, type ThreadKey } from "./domain.js";
 import { createRuntimeResources } from "./resources.js";
 import { SlackAgentService } from "./service.js";
 import { bothTracers, OtlpTracer } from "./tracing.js";
@@ -192,10 +192,21 @@ async function main(): Promise<void> {
     `@Datalayer Slack (${role}) is listening on ${config.PORT} (${config.DATALAYER_SLACK_TRANSPORT}).`,
   );
 
+  // Inbound events' idempotency records are forgotten once expired (S-004).
+  const purge = setInterval(() => {
+    void store
+      .purgeInbound(new Date())
+      .catch((error: unknown) =>
+        app.logger.warn("Could not purge expired Slack event records", error),
+      );
+  }, INBOUND_PURGE_MS);
+  purge.unref();
+
   let closing = false;
   const close = async (): Promise<void> => {
     if (closing) return;
     closing = true;
+    clearInterval(purge);
     poller.stop();
     health?.close();
     if (role !== "worker") await app.stop();

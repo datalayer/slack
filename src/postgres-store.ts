@@ -12,6 +12,10 @@ import {
   type IncomingPrompt,
   type ChannelBinding,
   type EventPolicy,
+  type InboundOutcome,
+  type InboundRecord,
+  type InboundResult,
+  type InboundState,
   type SlackDelivery,
   type ThreadTurn,
   type TurnClaim,
@@ -24,6 +28,13 @@ import {
   type ThreadKey,
 } from "./domain.js";
 import { turnIsStale, type RotatedBotToken, type SlackStore } from "./store.js";
+
+/**
+ * The host kit's work queue claims an inbound event's id as
+ * `ingress:<event id>` in `slack_event_claims`, in the transaction that
+ * enqueues its job: that claim is the event's idempotency record (S-004).
+ */
+const INGRESS_CLAIM = "ingress:";
 
 const enterprise = (value?: string): string => value ?? "";
 const dateString = (value: Date | string): string =>
@@ -182,6 +193,78 @@ export class PostgresSlackStore implements SlackStore {
       "DELETE FROM slack_event_claims WHERE event_id = $1",
       [eventId],
     );
+  }
+
+  async recordInbound(
+    eventId: string,
+    requestHash: string,
+    expiresAt: Date,
+  ): Promise<InboundOutcome> {
+    // The claim is made with the job; a crash before this left it without a
+    // hash, which the retry records. The first hash recorded stays.
+    const result = await this.database.query<{
+      before: string | null;
+      after: string;
+    }>(
+      `WITH before AS (
+         SELECT request_hash FROM slack_event_claims WHERE event_id = $1
+       ), recorded AS (
+         INSERT INTO slack_event_claims (event_id, request_hash, expires_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (event_id) DO UPDATE SET
+           request_hash = COALESCE(slack_event_claims.request_hash, EXCLUDED.request_hash),
+           expires_at = COALESCE(slack_event_claims.expires_at, EXCLUDED.expires_at)
+         RETURNING request_hash
+       )
+       SELECT (SELECT request_hash FROM before) AS before,
+              (SELECT request_hash FROM recorded) AS after`,
+      [`${INGRESS_CLAIM}${eventId}`, requestHash, expiresAt],
+    );
+    const row = result.rows[0];
+    if (row?.after !== requestHash) return "conflict";
+    return row.before === requestHash ? "replay" : "first";
+  }
+
+  async settleInbound(
+    eventId: string,
+    state: Exclude<InboundState, "claimed">,
+    result?: InboundResult,
+  ): Promise<void> {
+    await this.database.query(
+      `UPDATE slack_event_claims SET state = $2, result_ref = $3
+       WHERE event_id = $1 AND request_hash IS NOT NULL`,
+      [`${INGRESS_CLAIM}${eventId}`, state, result ?? null],
+    );
+  }
+
+  async getInbound(eventId: string): Promise<InboundRecord | undefined> {
+    const result = await this.database.query<{
+      expires_at: Date;
+      request_hash: string;
+      result_ref: InboundResult | null;
+      state: InboundState;
+    }>(
+      `SELECT request_hash, state, result_ref, expires_at FROM slack_event_claims
+       WHERE event_id = $1 AND request_hash IS NOT NULL`,
+      [`${INGRESS_CLAIM}${eventId}`],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      eventId,
+      expiresAt: dateString(row.expires_at),
+      requestHash: row.request_hash,
+      ...(row.result_ref ? { result: row.result_ref } : {}),
+      state: row.state,
+    };
+  }
+
+  async purgeInbound(now: Date): Promise<number> {
+    const result = await this.database.query(
+      "DELETE FROM slack_event_claims WHERE expires_at <= $1",
+      [now],
+    );
+    return result.rowCount ?? 0;
   }
 
   async getApprovalCards(

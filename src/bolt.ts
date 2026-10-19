@@ -17,10 +17,11 @@ import type {
 
 import { BotTokens } from "./bot-tokens.js";
 import type { Config } from "./config.js";
-import type {
-  SlackInstallationKey,
-  StarterSource,
-  ThreadKey,
+import {
+  INBOUND_TTL_MS,
+  type SlackInstallationKey,
+  type StarterSource,
+  type ThreadKey,
 } from "./domain.js";
 import {
   APPROVE_ACTION,
@@ -46,7 +47,7 @@ import {
   SUPPORT_ACTION,
   UNLINK_ACTION,
 } from "./home.js";
-import { ingressOf, type EventEnvelope } from "./ingress.js";
+import { inboundHashOf, ingressOf, type EventEnvelope } from "./ingress.js";
 import {
   answeredAskBlocks,
   ASK_CHOICE_ACTION,
@@ -414,30 +415,37 @@ export function registerSlackListeners(
     const ingress = ingressOf(body, config.DATALAYER_SLACK_BOT_USER_ID);
     const key = body.event_id;
     if (!key) return;
+    const job: SlackJob | undefined =
+      ingress.kind === "prompt"
+        ? { botUserId: ingress.botUserId, prompt: ingress.prompt }
+        : ingress.kind === "edited"
+          ? {
+              kind: "edited",
+              originalTs: ingress.originalTs,
+              prompt: ingress.prompt,
+            }
+          : ingress.kind === "deleted"
+            ? {
+                deletedTs: ingress.deletedTs,
+                kind: "deleted",
+                thread: ingress.prompt,
+                userId: ingress.prompt.userId,
+              }
+            : undefined;
+    if (!job) return;
     try {
-      if (ingress.kind === "prompt")
-        await queue.enqueue(
-          { botUserId: ingress.botUserId, prompt: ingress.prompt },
-          key,
-        );
-      else if (ingress.kind === "edited")
-        await queue.enqueue(
-          {
-            kind: "edited",
-            originalTs: ingress.originalTs,
-            prompt: ingress.prompt,
-          },
-          key,
-        );
-      else if (ingress.kind === "deleted")
-        await queue.enqueue(
-          {
-            deletedTs: ingress.deletedTs,
-            kind: "deleted",
-            thread: ingress.prompt,
-            userId: ingress.prompt.userId,
-          },
-          key,
+      await queue.enqueue(job, key);
+      // The event's idempotency record (S-004): its claim holds the hash of
+      // the request as normalized here. A retry is the same request; the
+      // same event id with another one enqueued nothing, and is said.
+      const outcome = await service.store.recordInbound(
+        key,
+        inboundHashOf(job),
+        new Date(Date.now() + INBOUND_TTL_MS),
+      );
+      if (outcome === "conflict")
+        logger.warn(
+          `Slack event ${key} came again with another request: refused, nothing enqueued.`,
         );
     } catch (error) {
       logger.error("Failed to persist a Slack event", error);

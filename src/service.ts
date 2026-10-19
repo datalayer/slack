@@ -182,15 +182,17 @@ export class SlackAgentService {
     }
   }
 
-  #refused(
+  async #refused(
     prompt: IncomingPrompt,
     refusal: Refusal | "busy" | "empty" | "quota",
-  ): void {
+  ): Promise<void> {
     this.logger.audit("identity.refused", {
       installation: `${prompt.appId}:${prompt.enterpriseId ?? "-"}:${prompt.teamId}`,
       reason: refusal,
       user: prompt.userId,
     });
+    // The event's idempotency record says it was answered with a refusal (S-004).
+    await this.store.settleInbound(prompt.eventId, "refused");
   }
 
   async handlePrompt(
@@ -207,7 +209,10 @@ export class SlackAgentService {
     });
     const resolution = await this.routing.resolve(prompt);
     if (!resolution.ok) {
-      if (resolution.refusal === "not-installed") return; // late work is dropped
+      if (resolution.refusal === "not-installed") {
+        await this.store.settleInbound(prompt.eventId, "refused");
+        return; // late work is dropped
+      }
       if (resolution.refusal === "deactivated") {
         // Slack says the person is deactivated: their link ends (S-103).
         await this.links.unlink?.(prompt, prompt.userId);
@@ -219,7 +224,7 @@ export class SlackAgentService {
       }
       if (resolution.refusal === "no-application" && resolution.message?.blocks)
         await this.store.holdPrompt(prompt);
-      this.#refused(prompt, resolution.refusal);
+      await this.#refused(prompt, resolution.refusal);
       if (resolution.message)
         await this.privately(prompt, prompt.userId, resolution.message);
       return;
@@ -228,6 +233,7 @@ export class SlackAgentService {
 
     const text = stripAppMention(prompt.text, botUserId);
     if (!text) {
+      await this.store.settleInbound(prompt.eventId, "refused");
       await this.privately(prompt, prompt.userId, {
         text: "Add a question after @Datalayer.",
       });
@@ -249,7 +255,7 @@ export class SlackAgentService {
     )
       return; // the same event, its worker still answering (its heartbeat is recent)
     if (claim.outcome === "busy") {
-      this.#refused(prompt, "busy");
+      await this.#refused(prompt, "busy");
       await this.privately(
         prompt,
         prompt.userId,
@@ -278,7 +284,7 @@ export class SlackAgentService {
       );
       if (!taken.ok) {
         await this.store.endTurn(prompt, prompt.eventId);
-        this.#refused(prompt, "quota");
+        await this.#refused(prompt, "quota");
         await this.privately(prompt, prompt.userId, {
           text: quotaWords(
             {
@@ -322,12 +328,13 @@ export class SlackAgentService {
     } catch (error) {
       await this.store.endTurn(prompt, prompt.eventId);
       if (error instanceof HostRefusedError && error.status < 500) {
-        this.#refused(prompt, "no-access");
+        await this.#refused(prompt, "no-access");
         await this.privately(prompt, prompt.userId, {
           text: `Datalayer did not let this turn start: ${error.detail} Read ${this.webUrl}/docs/slack#troubleshooting`,
         });
         return;
       }
+      await this.store.settleInbound(prompt.eventId, "failed");
       throw error;
     }
 
@@ -374,14 +381,18 @@ export class SlackAgentService {
       ...traceAttributes(prompt),
       "datalayer.session": turn.sessionId,
     };
+    // Where the event's turn ended, and what answered it (S-004).
+    let messageTs: string | undefined;
+    let settled: "answered" | "failed" = "failed";
     await (this.options.tracer ?? noTracer).span(
       "slack.turn",
       spanned,
       async () => {
         try {
-          const messageTs = await renderer.begin();
+          const begun = await renderer.begin();
+          messageTs = begun;
           await this.store.updateTurn(prompt, prompt.eventId, {
-            messageTs,
+            messageTs: begun,
             sessionId: turn.sessionId,
           });
           const binding = {
@@ -393,7 +404,7 @@ export class SlackAgentService {
               resolved.binding?.openedByPrincipalId ?? resolved.principalId,
             // Until the turn finishes, its status message waits for an answer: a
             // turn paused on an approval is finished by `turn.completed`.
-            pendingMessageTs: messageTs,
+            pendingMessageTs: begun,
             sessionId: turn.sessionId,
             updatedAt: now.toISOString(),
             visibility: resolved.visibility,
@@ -430,6 +441,7 @@ export class SlackAgentService {
               : binding.pendingMessageTs,
             updatedAt: new Date(this.#clock.now()).toISOString(),
           });
+          settled = "answered";
         } catch (error) {
           this.logger.warn("turn.interrupted", {
             error_name: error instanceof Error ? error.name : "unknown",
@@ -445,6 +457,11 @@ export class SlackAgentService {
         }
       },
     );
+    await this.store.settleInbound(prompt.eventId, settled, {
+      messageTs,
+      sessionId: turn.sessionId,
+      turnId: turn.run.id,
+    });
   }
 
   /**

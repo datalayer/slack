@@ -9,11 +9,13 @@ import {
   SecretCipher,
   type WorkQueue,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import type {
-  IncomingPrompt,
-  ThreadBinding,
-  ThreadKey,
+import {
+  INBOUND_TTL_MS,
+  type IncomingPrompt,
+  type ThreadBinding,
+  type ThreadKey,
 } from "../src/domain.js";
+import { inboundHashOf } from "../src/ingress.js";
 import { PostgresSlackStore } from "../src/postgres-store.js";
 import { MemorySlackStore, type SlackStore } from "../src/store.js";
 import { testDatabase } from "./support/postgres.js";
@@ -394,6 +396,58 @@ function suite(name: string, fresh: () => Promise<Opened>) {
       expect(await queue.enqueue({ n: 1 }, "Ev1")).toBe(true);
       expect(await queue.enqueue({ n: 2 }, "Ev1")).toBe(false);
       expect(await queue.ready()).toBe(true);
+    });
+
+    it("keeps an inbound event's idempotency record: its hash, where it stands, what answered it, until it expires (S-004)", async () => {
+      await reset();
+      const job = {
+        prompt: { ...thread, eventId: "Ev9", text: "hi", userId: "U1" },
+      };
+      const hash = inboundHashOf(job);
+      const expires = new Date(at.getTime() + INBOUND_TTL_MS);
+      // The claim is made with the job; the hash is recorded on it.
+      expect(await queue.enqueue(job, "Ev9")).toBe(true);
+      expect(await store.recordInbound("Ev9", hash, expires)).toBe("first");
+      expect(await store.getInbound("Ev9")).toEqual({
+        eventId: "Ev9",
+        expiresAt: expires.toISOString(),
+        requestHash: hash,
+        state: "claimed",
+      });
+      // Slack's retry: the same request, normalized the same.
+      const retried = {
+        prompt: { userId: "U1", text: "hi", eventId: "Ev9", ...thread },
+      };
+      expect(await queue.enqueue(retried, "Ev9")).toBe(false);
+      expect(
+        await store.recordInbound("Ev9", inboundHashOf(retried), expires),
+      ).toBe("replay");
+      // Another request under the same event id: refused, the first hash kept.
+      const other = { prompt: { ...job.prompt, text: "wire the money" } };
+      expect(await queue.enqueue(other, "Ev9")).toBe(false);
+      expect(
+        await store.recordInbound("Ev9", inboundHashOf(other), expires),
+      ).toBe("conflict");
+      expect((await store.getInbound("Ev9"))?.requestHash).toBe(hash);
+      // Where its turn ended, and what answered it.
+      await store.settleInbound("Ev9", "answered", {
+        messageTs: "2.0",
+        sessionId: "slack-s-1",
+        turnId: "t-1",
+      });
+      expect(await store.getInbound("Ev9")).toMatchObject({
+        result: { messageTs: "2.0", sessionId: "slack-s-1", turnId: "t-1" },
+        state: "answered",
+      });
+      // No record, no change.
+      await store.settleInbound("Ev10", "failed");
+      expect(await store.getInbound("Ev10")).toBeUndefined();
+      // Purged once expired; claims of another kind (a nonce) are kept.
+      expect(await store.claimEvent("nonce-1")).toBe(true);
+      expect(await store.purgeInbound(new Date(expires.getTime() - 1))).toBe(0);
+      expect(await store.purgeInbound(expires)).toBe(1);
+      expect(await store.getInbound("Ev9")).toBeUndefined();
+      expect(await store.claimEvent("nonce-1")).toBe(false);
     });
   });
 }

@@ -147,6 +147,42 @@ export type TurnClaim =
   | Readonly<{ outcome: "done"; turn: ThreadTurn }>;
 
 /**
+ * The idempotency record of an inbound Slack event (S-004): the ingress
+ * claim of its event id, made with its job, holding the hash of the request
+ * as normalized at ingress, where its turn stands, what answered it, and
+ * until when it is kept. A redelivery is the same hash; the same event id
+ * with another hash is another request, refused.
+ */
+export type InboundState = "claimed" | "answered" | "refused" | "failed";
+
+/** What answered an inbound event: its Datalayer session and turn, its Slack message. */
+export type InboundResult = Readonly<{
+  sessionId?: string;
+  turnId?: string;
+  messageTs?: string;
+}>;
+
+export type InboundRecord = Readonly<{
+  eventId: string;
+  requestHash: string;
+  state: InboundState;
+  result?: InboundResult;
+  expiresAt: string;
+}>;
+
+/**
+ * An inbound event's hash against its record: recorded the first time, the
+ * same request again (a Slack retry), or another request under the event id.
+ */
+export type InboundOutcome = "first" | "replay" | "conflict";
+
+/** How long an inbound event's record is kept: longer than Slack retries for. */
+export const INBOUND_TTL_MS = 24 * 3600 * 1000;
+
+/** How often the expired inbound records are purged. */
+export const INBOUND_PURGE_MS = 3600 * 1000;
+
+/**
  * Where an approval was shown in Slack: the card itself (in a direct message
  * or the session's DM thread) and, for a channel session, the waiting line
  * left in the shared thread. Each is updated when the approval is decided.

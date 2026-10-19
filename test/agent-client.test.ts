@@ -16,6 +16,11 @@ import type { TurnRequest } from "../src/domain.js";
 import { CONTRACTS_PATH } from "./support/contracts.js";
 
 const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
+  bind_session: {
+    request: { target: Record<string, string> };
+    response_keys: string[];
+    binding_keys: string[];
+  };
   exchange: {
     optional_request: Record<string, unknown>;
     request: Record<string, string>;
@@ -196,7 +201,8 @@ describe("Datalayer agent client", () => {
     );
     expect(bind?.method).toBe("PUT");
     expect(bind?.headers[contracts.headers.host_key!]).toBe("dlhk_key");
-    // The target every delivery hands back: the thread and the person.
+    // The target every delivery hands back: the thread and the person,
+    // exactly the contract's `bind_session` request.
     expect(bind?.body).toEqual({
       target: {
         appId: "A0",
@@ -206,6 +212,7 @@ describe("Datalayer agent client", () => {
         userId: "U0ALICE",
       },
     });
+    expect(bind?.body).toEqual(contracts.bind_session.request);
     expect(seen).toEqual([
       { kind: "tool", id: "c1", name: "search", status: "running" },
       { kind: "tool", id: "c1", name: "search", status: "complete" },

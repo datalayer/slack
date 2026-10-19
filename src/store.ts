@@ -10,6 +10,10 @@ import {
   type IncomingPrompt,
   type ChannelBinding,
   type EventPolicy,
+  type InboundOutcome,
+  type InboundRecord,
+  type InboundResult,
+  type InboundState,
   type SlackDelivery,
   type ThreadTurn,
   type TurnClaim,
@@ -39,6 +43,25 @@ export interface SlackStore extends QuotaStore {
   claimEvent(eventId: string): Promise<boolean>;
   /** Give a claim back when its work failed, so a retry can claim it again. */
   releaseEvent(eventId: string): Promise<void>;
+  /**
+   * Record the normalized request hash of an inbound event claimed at
+   * ingress (S-004), once: `first` when this records it, `replay` for the
+   * same hash again, `conflict` for another hash under the same event id.
+   */
+  recordInbound(
+    eventId: string,
+    requestHash: string,
+    expiresAt: Date,
+  ): Promise<InboundOutcome>;
+  /** Say where an inbound event's turn ended, and what answered it; no record, no change. */
+  settleInbound(
+    eventId: string,
+    state: Exclude<InboundState, "claimed">,
+    result?: InboundResult,
+  ): Promise<void>;
+  getInbound(eventId: string): Promise<InboundRecord | undefined>;
+  /** Forget the inbound records expired by `now`: how many. */
+  purgeInbound(now: Date): Promise<number>;
   deleteInstallation(key: SlackInstallationKey): Promise<void>;
   getApprovalCards(
     key: SlackInstallationKey,
@@ -192,6 +215,7 @@ export class MemorySlackStore implements SlackStore {
   readonly #archived = new Map<string, ThreadBinding[]>();
   readonly #turns = new Map<string, ThreadTurn>();
   readonly #finished = new Set<string>();
+  readonly #inbound = new Map<string, InboundRecord>();
   readonly #held = new Map<string, IncomingPrompt>();
   readonly #next = new Map<string, string>();
   readonly #quotas = new MemoryQuotaStore();
@@ -204,6 +228,47 @@ export class MemorySlackStore implements SlackStore {
 
   async releaseEvent(eventId: string): Promise<void> {
     this.#events.delete(eventId);
+  }
+
+  async recordInbound(
+    eventId: string,
+    requestHash: string,
+    expiresAt: Date,
+  ): Promise<InboundOutcome> {
+    const known = this.#inbound.get(eventId);
+    if (!known) {
+      this.#inbound.set(eventId, {
+        eventId,
+        expiresAt: expiresAt.toISOString(),
+        requestHash,
+        state: "claimed",
+      });
+      return "first";
+    }
+    return known.requestHash === requestHash ? "replay" : "conflict";
+  }
+
+  async settleInbound(
+    eventId: string,
+    state: Exclude<InboundState, "claimed">,
+    result?: InboundResult,
+  ): Promise<void> {
+    const known = this.#inbound.get(eventId);
+    if (known) this.#inbound.set(eventId, { ...known, result, state });
+  }
+
+  async getInbound(eventId: string): Promise<InboundRecord | undefined> {
+    return this.#inbound.get(eventId);
+  }
+
+  async purgeInbound(now: Date): Promise<number> {
+    let purged = 0;
+    for (const [eventId, record] of this.#inbound)
+      if (new Date(record.expiresAt).getTime() <= now.getTime()) {
+        this.#inbound.delete(eventId);
+        purged += 1;
+      }
+    return purged;
   }
 
   async deleteInstallation(key: SlackInstallationKey): Promise<void> {

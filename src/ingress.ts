@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { IncomingPrompt } from "./domain.js";
 import { slackThreadKey } from "./service.js";
 
@@ -193,4 +195,26 @@ export function ingressOf(
   }
 
   return { kind: "ignore", reason: "unsupported-event" };
+}
+
+/**
+ * The hash of an inbound event's request as normalized at ingress (S-004):
+ * its job, keys sorted, absent values left out. A Slack retry of the same
+ * event hashes the same.
+ */
+export function inboundHashOf(job: unknown): string {
+  return createHash("sha256").update(canonical(job)).digest("hex");
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .filter((name) => record[name] !== undefined)
+      .sort()
+      .map((name) => `${JSON.stringify(name)}:${canonical(record[name])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }

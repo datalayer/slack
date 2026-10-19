@@ -491,6 +491,39 @@ describe("turns: serialization, Stop, duplicates and crashes (S-207)", () => {
     expect(agents.requests).toHaveLength(1);
   });
 
+  it("settles the event's idempotency record: answered with its session, turn and message, refused, or failed (S-004)", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const later = new Date(Date.now() + 3600_000);
+    for (const eventId of ["Ev1", "Ev2", "Ev3"])
+      await store.recordInbound(eventId, `hash-${eventId}`, later);
+    const run = serviceOf(store);
+    await run.service.handlePrompt(promptOf(), "B1");
+    const answered = await store.getInbound("Ev1");
+    expect(answered).toMatchObject({
+      requestHash: "hash-Ev1",
+      result: { sessionId: "S-0", turnId: "t1" },
+      state: "answered",
+    });
+    expect(answered?.result?.messageTs).toBe(
+      (await store.getTurn(promptOf()))?.messageTs,
+    );
+    await run.service.handlePrompt(
+      promptOf({ eventId: "Ev2", text: "<@B1>" }),
+      "B1",
+    );
+    expect((await store.getInbound("Ev2"))?.state).toBe("refused");
+    async function* broken(): AsyncIterable<SemanticEvent> {
+      yield { kind: "text", text: "Half" };
+      throw new Error("socket closed");
+    }
+    run.agents.script = () => ({ run: {}, sessionId: "S1", updates: broken() });
+    await run.service.handlePrompt(promptOf({ eventId: "Ev3" }), "B1");
+    expect(await store.getInbound("Ev3")).toMatchObject({
+      result: { sessionId: "S1" },
+      state: "failed",
+    });
+  });
+
   it("finishes with an error, and lets the next prompt run, when the stream breaks", async () => {
     const store = await installedStore({ defaultApplication: "dep-1" });
     async function* broken(): AsyncIterable<SemanticEvent> {

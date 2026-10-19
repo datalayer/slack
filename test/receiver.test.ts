@@ -2,12 +2,13 @@ import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
-import { App } from "@slack/bolt";
+import { App, LogLevel, type Logger } from "@slack/bolt";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { registerSlackListeners, SLACK_EVENTS_PATH } from "../src/bolt.js";
 import { guardRequestTimestamps } from "../src/health.js";
 import { readConfig } from "../src/config.js";
+import { inboundHashOf } from "../src/ingress.js";
 import { MemoryWorkQueue } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import { SlackAgentService } from "../src/service.js";
 import type { SlackJob } from "../src/worker.js";
@@ -58,9 +59,31 @@ afterEach(async () => {
   server = undefined;
 });
 
+/** Bolt's logger, its warnings kept. */
+function keptBoltLogger(): Logger & { warnings: string[] } {
+  const warnings: string[] = [];
+  let level = LogLevel.INFO;
+  return {
+    debug: () => undefined,
+    error: () => undefined,
+    getLevel: () => level,
+    info: () => undefined,
+    setLevel: (next) => {
+      level = next;
+    },
+    setName: () => undefined,
+    warn: (...messages: unknown[]) => {
+      warnings.push(messages.map(String).join(" "));
+    },
+    warnings,
+  };
+}
+
 async function started() {
   const queue = new CountingQueue();
+  const logger = keptBoltLogger();
   app = new App({
+    logger,
     authorize: async () => ({
       botId: "Bx",
       botToken: "xoxb-test",
@@ -94,17 +117,17 @@ async function started() {
       headers: { "content-type": "application/json", ...headers },
       method: "POST",
     });
-  return { post, queue };
+  return { logger, post, queue, store };
 }
 
-const mention = (eventId = "Ev1") =>
+const mention = (eventId = "Ev1", text = "<@B1> hi") =>
   JSON.stringify({
     api_app_id: "A1",
     authorizations: [{ is_bot: true, user_id: "B1" }],
     event: {
       channel: "C1",
       event_ts: "1.0",
-      text: "<@B1> hi",
+      text,
       ts: "1.0",
       type: "app_mention",
       user: "U1",
@@ -137,6 +160,45 @@ describe("signed HTTPS ingress (S-201)", () => {
     });
     expect(retry.status).toBe(200);
     expect(queue.persisted).toHaveLength(1);
+  });
+
+  it("keeps a mention's idempotency record, and refuses its event id with another request, said (S-004)", async () => {
+    const { logger, post, queue, store } = await started();
+    const signed = (body: string) => {
+      const stamp = now();
+      return post(body, {
+        "x-slack-request-timestamp": String(stamp),
+        "x-slack-signature": sign(body, stamp),
+      });
+    };
+    expect((await signed(mention("Ev7"))).status).toBe(200);
+    const [job] = queue.persisted;
+    const record = await store.getInbound("Ev7");
+    expect(record).toMatchObject({
+      eventId: "Ev7",
+      requestHash: inboundHashOf(job),
+      state: "claimed",
+    });
+    // Kept a day: longer than Slack retries for.
+    expect(new Date(record?.expiresAt ?? 0).getTime()).toBeGreaterThan(
+      Date.now() + 23 * 3600 * 1000,
+    );
+    // Slack's retry hashes the same: nothing enqueued, nothing said.
+    expect((await signed(mention("Ev7"))).status).toBe(200);
+    expect(logger.warnings).toEqual([]);
+    // The same event id with another request: acknowledged, enqueued nothing, said.
+    expect((await signed(mention("Ev7", "<@B1> wire the money"))).status).toBe(
+      200,
+    );
+    expect(queue.persisted).toHaveLength(1);
+    expect(logger.warnings).toEqual([
+      expect.stringContaining(
+        "Slack event Ev7 came again with another request",
+      ),
+    ]);
+    expect((await store.getInbound("Ev7"))?.requestHash).toBe(
+      record?.requestHash,
+    );
   });
 
   it("refuses a forged signature", async () => {
