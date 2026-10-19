@@ -17,7 +17,9 @@
 #        Datalayer's channel rules read before each prompt, replaced wholesale (S-403); each person's quiet
 #        or noisy answers on the Home (S-308, migration 008); the dead-letter operator checked at IAM
 #        (S-405, DATALAYER_OPERATOR_KEY); a span per turn with its session and run, exported as OTLP JSON
-#        when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and DATALAYER_OTEL_API_KEY are set (S-101). From e7d7ac2 or later.
+#        when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and DATALAYER_OTEL_API_KEY are set (S-101); an inbound event's
+#        idempotency record (S-004, migration 009) on agent-runtimes 1.5.55's host contracts (bind_session).
+#        From abcdb6d or later.
 VERSION ?= 0.1.6
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
