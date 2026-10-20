@@ -152,18 +152,19 @@ This is how `Datalayer Dev` (`A0CAMVC1E1E`) was made on 16 October 2026, and how
 7. **`.env` from the rc** (git-ignored, mode 600): `DATALAYER_SLACK_APP_ID`, `DATALAYER_SLACK_SIGNING_SECRET`, `DATALAYER_SLACK_BOT_TOKEN`, `DATALAYER_SLACK_APP_TOKEN`, `DATALAYER_SLACK_CLIENT_ID`, `DATALAYER_SLACK_CLIENT_SECRET` from the `DATALAYER_SLACK_DEVELOPMENT_*` values; `DATALAYER_SLACK_TEAM_ID` and `DATALAYER_SLACK_BOT_USER_ID` from Slack's `auth.test` with the bot token; `DATALAYER_API_URL=https://r1.datalayer.run` (the host contracts run on r1); `DATALAYER_DEFAULT_APP_ID` the **deployment** uid of an application kept always on that does **not** sign its users (an application with D-21 user signing refuses development mode's key with 401); `DATALAYER_DEV_PRINCIPAL_ID` and `DATALAYER_DEV_SLACK_USER_ID` (your Datalayer uid and Slack member id).
 8. **Run it:** with `DATALAYER_API_KEY` exported for the account that owns that deployment, `make dev-socket`. In Slack: write to **Datalayer Dev** in a direct message, or `/invite @Datalayer Dev` to a channel and mention it in every message there (thread replies included; decided 16 October 2026). A refused turn is said to you privately with the reason (a spent daily limit, a user token missing).
 
-### Staging and production (HTTP, on r1)
+### Production (HTTP, on r1)
 
-1. **(you) The public address and DNS** for the environment's fixed origin (`slack-staging.datalayer.run`, `slack.datalayer.ai`; `scripts/manifest.ts`).
-2. **The chart's Secret and Postgres** already exist on r1 (`p reup datalayer-slack` creates `datalayer-slack-env` and `datalayer-slack-postgresql` even while the service is off).
-3. **Create the app and deploy its secrets:** `make slack-app ENV=staging SECRET=datalayer-api/datalayer-slack-env` (kubectl on r1). The signing and client secrets go to the Secret through stdin; `DATALAYER_SLACK_APP_ID` and `DATALAYER_SLACK_CLIENT_ID` to `~/.datalayer/datalayerrc-r1`.
-4. **(you) Turn the service on:** in `~/.datalayer/datalayerrc-r1`, `DATALAYER_SLACK_ENABLED=true` and `DATALAYER_SLACK_PUBLIC_URL=https://slack-staging.datalayer.run`; then `p reup datalayer-slack`. Slack checks the events URL once the service answers.
-5. **(you) Install it** to the workspace from the Studio: an application → **Ship** → **Slack** card → **Install to Slack**, which binds the installation to that application.
-6. Production: the same with `ENV=production`, after the security and privacy sign-off (S-003).
+1. **The public address:** `slack.datalayer.run`, a DNS record pointing to r1's Traefik load balancer (the manifest's origin, `scripts/manifest.ts`). The chart's ingress and its cert-manager certificate (letsencrypt, HTTP-01) exist as soon as `p reup datalayer-slack` has run, the service on or off; the certificate is issued once the name resolves.
+2. **The chart's Secret and Postgres** exist on r1 too (`datalayer-slack-env`, its state secret and token encryption key generated once and kept, and `datalayer-slack-postgresql`).
+3. **Create the app and deploy it:** `make slack-app ENV=production DEPLOY=1`, once the certificate is ready (Slack calls the events URL to verify it). Its id, client id, client secret and signing secret, and its public origin, go to `~/.datalayer/datalayerrc-r1` as `DATALAYER_SLACK_APP_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_SIGNING_SECRET` and `_PUBLIC_URL`. Nothing secret is printed, and no Secret is written by hand: up.sh gives these values to the chart on every reup, which writes them into `datalayer-slack-env`.
+4. **(you) Turn the service on:** `DATALAYER_SLACK_ENABLED=true` in `~/.datalayer/datalayerrc-r1`, then `p reup datalayer-slack`; up.sh refuses while one of the app's values is missing. The migrate job runs first, then the ingress and worker roles start. Slack verifies the events URL once the service answers.
+5. **(you) Install it** to a workspace from the Studio: an application → **Ship** → **Slack** card → **Install @Datalayer**, which binds the installation to that application.
+
+Staging is the same with `ENV=staging` and `slack-staging.datalayer.run`, should one be wanted: one service runs on r1, as the app whose values the r1 rc holds.
 
 ## Creating and updating the Slack apps
 
-There is one Slack app per environment, each made from its manifest: `Datalayer Dev` (`manifests/development.yaml`, Socket Mode, Datalayer's own workspace), staging (`manifests/staging.yaml`, `slack-staging.datalayer.run`) and production (`manifests/production.yaml`, `slack.datalayer.ai`). Create them with the script (path A); the console (path B) is the fallback when no configuration token is at hand. Never edit an app's scopes, events or URLs in the console afterwards: change `app-manifest.template.yaml`, render, and update the app with the script, so the manifests stay the record.
+There is one Slack app per environment, each made from its manifest: `Datalayer Dev` (`manifests/development.yaml`, Socket Mode, Datalayer's own workspace), staging (`manifests/staging.yaml`, `slack-staging.datalayer.run`) and production (`manifests/production.yaml`, `Datalayer`, `slack.datalayer.run`). Create them with the script (path A); the console (path B) is the fallback when no configuration token is at hand. Never edit an app's scopes, events or URLs in the console afterwards: change `app-manifest.template.yaml`, render, and update the app with the script, so the manifests stay the record.
 
 ### A. With the script (`make slack-app`)
 
@@ -194,22 +195,22 @@ There is one Slack app per environment, each made from its manifest: `Datalayer 
 
    Slack validates the manifest (`apps.manifest.validate`), then creates the app (`apps.manifest.create`). The script prints the app id, what changed and an install link, and saves `DATALAYER_SLACK_DEVELOPMENT_APP_ID`, `_CLIENT_ID`, `_CLIENT_SECRET` and `_SIGNING_SECRET` to the prod1 rc. Slack answers the secrets only on create: they are nowhere else.
 
-   For staging (the r1 pilot), with `kubectl` on r1's context, so the app is also deployed to the chart:
+   For production (the service on r1), so the app is also deployed:
 
    ```bash
-   make slack-app ENV=staging SECRET=datalayer-api/datalayer-slack-env
+   make slack-app ENV=production DEPLOY=1
    ```
 
-   Its signing and client secrets go through stdin to the Secret the chart created, and `DATALAYER_SLACK_APP_ID` and `DATALAYER_SLACK_CLIENT_ID` to `~/.datalayer/datalayerrc-r1`. Production is the same with `ENV=production`, once its host is served.
+   Its id, client id, client secret, signing secret and public origin go to `~/.datalayer/datalayerrc-r1` (`DATALAYER_SLACK_APP_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_SIGNING_SECRET`, `_PUBLIC_URL`); `p reup datalayer-slack` gives them to the chart, which writes the Secret. `DEPLOY=1` refuses the Socket Mode development app: the service on r1 takes Slack's requests over HTTP.
 
 5. **Finish in the console what the manifest API cannot set** ([api.slack.com/apps](https://api.slack.com/apps) → the app):
    - **Basic Information → Display Information:** the app icon (512–2000 px square) and, for staging and production, the long description.
    - **Development only, Socket Mode:** **Basic Information → App-Level Tokens → Generate Token and Scopes**, name `datalayer-local`, scope `connections:write`, and copy the `xapp-…` value into `.env` as `DATALAYER_SLACK_APP_TOKEN`. Then **Install App → Install to Workspace**, approve the five scopes and copy the **Bot User OAuth Token** (`xoxb-…`) as `DATALAYER_SLACK_BOT_TOKEN`. Continue at [Datalayer workspace setup](#datalayer-workspace-setup-socket-mode), step 4.
    - **Staging and production:** **Manage Distribution → Activate Public Distribution**, after Slack's checklist (HTTPS redirect URL, no hard-coded information) is green; without it only the app's own workspace can install. Do not install from the console: a workspace installs from the application's Ship tab in Datalayer, so it is bound at install.
 
-6. **Deploy and check (staging).** In `~/.datalayer/datalayerrc-r1`, set `DATALAYER_SLACK_ENABLED=true` and `DATALAYER_SLACK_PUBLIC_URL=https://slack-staging.datalayer.run` (the manifest's origin), then run `p reup datalayer-slack`. When `/readyz` answers 200, open the app's **Event Subscriptions** page: the Request URL must show _Verified_ (Slack sends its challenge when the address changes; press **Retry** if it was saved before the service ran). Then add @Datalayer from an application's Ship tab and follow [HTTP and OAuth development](#http-and-oauth-development), step 5, from _Then open @Datalayer's Home_.
+6. **Deploy and check (production).** In `~/.datalayer/datalayerrc-r1`, set `DATALAYER_SLACK_ENABLED=true` (`DATALAYER_SLACK_PUBLIC_URL` was written by `DEPLOY=1`), then run `p reup datalayer-slack`. When `/readyz` answers 200, open the app's **Event Subscriptions** page: the Request URL must show _Verified_ (Slack sends its challenge when the address changes; press **Retry** if it was saved before the service ran). Then add @Datalayer from an application's Ship tab and follow [HTTP and OAuth development](#http-and-oauth-development), step 5, from _Then open @Datalayer's Home_.
 
-To change an app later, edit the template, render, and run the same `make slack-app ENV=…`: when the rc names the app it is updated (`apps.manifest.update`); Slack then answers no credentials, so `SECRET=` deploys the ones the rc kept. A change of scopes asks each workspace to reinstall. The `Datalayer Dev` app was created this way on 16 October 2026 (`A0CAMVC1E1E`).
+To change an app later, edit the template, render, and run the same `make slack-app ENV=…`: when the rc names the app it is updated (`apps.manifest.update`); Slack then answers no credentials, so `DEPLOY=1` deploys the ones the prod1 rc kept. A change of scopes asks each workspace to reinstall. The `Datalayer Dev` app was created this way on 16 October 2026 (`A0CAMVC1E1E`).
 
 ### B. In the console, without a configuration token
 

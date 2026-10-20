@@ -204,28 +204,29 @@ describe("the rc", () => {
   });
 });
 
-describe("deploying an app to the chart", () => {
+describe("deploying an app to the r1 rc", () => {
   const credentials = {
     client_id: "1.2",
     client_secret: "cs",
     signing_secret: "ss",
   };
 
-  it("takes a created app's secrets for the Secret and its ids for the r1 rc", () => {
-    expect(deployEntries("staging", "", "A9", credentials)).toEqual({
-      secret: {
-        DATALAYER_SLACK_SIGNING_SECRET: "ss",
-        DATALAYER_SLACK_CLIENT_SECRET: "cs",
-      },
-      ids: { DATALAYER_SLACK_APP_ID: "A9", DATALAYER_SLACK_CLIENT_ID: "1.2" },
+  it("takes a created app's ids, secrets and public origin for the r1 rc", () => {
+    expect(deployEntries("production", "", "A9", credentials)).toEqual({
+      DATALAYER_SLACK_APP_ID: "A9",
+      DATALAYER_SLACK_CLIENT_ID: "1.2",
+      DATALAYER_SLACK_CLIENT_SECRET: "cs",
+      DATALAYER_SLACK_SIGNING_SECRET: "ss",
+      DATALAYER_SLACK_PUBLIC_URL: "https://slack.datalayer.run",
     });
   });
 
   it("takes an updated app's from what the rc saved at its creation", () => {
     const rc = withExports("", createdEntries("staging", "A9", credentials));
-    expect(deployEntries("staging", rc, "A9")).toEqual(
-      deployEntries("staging", "", "A9", credentials),
-    );
+    expect(deployEntries("staging", rc, "A9")).toEqual({
+      ...deployEntries("production", "", "A9", credentials),
+      DATALAYER_SLACK_PUBLIC_URL: "https://slack-staging.datalayer.run",
+    });
   });
 
   it("fails naming what the rc lacks, never another environment's", () => {
@@ -235,6 +236,12 @@ describe("deploying an app to the chart", () => {
     );
     expect(() => deployEntries("staging", rc, "A9")).toThrow(
       "DATALAYER_SLACK_STAGING_CLIENT_ID, DATALAYER_SLACK_STAGING_CLIENT_SECRET, DATALAYER_SLACK_STAGING_SIGNING_SECRET not in the rc",
+    );
+  });
+
+  it("refuses a Socket Mode app: r1 takes Slack's requests over HTTP", () => {
+    expect(() => deployEntries("development", "", "A1", credentials)).toThrow(
+      /Socket Mode/,
     );
   });
 });

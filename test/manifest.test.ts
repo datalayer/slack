@@ -120,7 +120,7 @@ describe("the manifests as code (S-006, S-107)", () => {
     expect(() =>
       validate(
         render(broken, {
-          baseUrl: "https://slack.datalayer.ai",
+          baseUrl: "https://slack.datalayer.run",
           socket: false,
           suffix: "",
           tokenRotation: true,

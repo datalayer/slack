@@ -34,7 +34,7 @@ export const ENVIRONMENTS = {
     tokenRotation: true,
   },
   production: {
-    baseUrl: "https://slack.datalayer.ai",
+    baseUrl: "https://slack.datalayer.run",
     socket: false,
     suffix: "",
     tokenRotation: true,

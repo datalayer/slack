@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import {
   ENVIRONMENT_NAMES,
+  ENVIRONMENTS,
   type EnvironmentName,
   validate,
 } from "./manifest.js";
@@ -18,11 +18,12 @@ import {
  * access token lives 12 hours and every rotation spends the refresh token, so
  * each run rotates first and writes both back. On create, Slack answers the
  * app's credentials once: the ids and the secrets go to the rc as
- * DATALAYER_SLACK_<ENV>_*. With --k8s-secret, the app the service on r1
- * runs as (just created, or saved in the rc earlier) is deployed: its signing
- * and client secrets go to the Secret the chart created, and its two
- * non-secret ids to the r1 rc as DATALAYER_SLACK_APP_ID and DATALAYER_SLACK_CLIENT_ID, which
- * up.sh's datalayer_slack passes to the chart. Nothing secret is printed.
+ * DATALAYER_SLACK_<ENV>_*. With --deploy, the app the service on r1 runs as
+ * (just created, or saved in the rc earlier) is deployed: its ids, its
+ * secrets and its public origin go to the r1 rc as DATALAYER_SLACK_APP_ID,
+ * _CLIENT_ID, _CLIENT_SECRET, _SIGNING_SECRET and _PUBLIC_URL, which up.sh's
+ * datalayer_slack gives the chart on every reup (the user, 20 October 2026:
+ * the secrets are set by the chart, never by hand). Nothing secret is printed.
  */
 
 export const SLACK_API = "https://slack.com/api";
@@ -143,16 +144,23 @@ export function createdEntries(
 }
 
 /**
- * What deploying an app to the chart writes: its secrets for the Secret and
- * its ids for the r1 rc. From the create answer, else from what the rc saved
- * when the app was created; fails naming what is missing.
+ * What deploying an app writes to the r1 rc, for up.sh to give the chart: its
+ * ids, its secrets and its public origin. From the create answer, else from
+ * what the rc saved when the app was created; fails naming what is missing.
+ * Only an app Slack reaches over HTTP is deployed: the r1 service never runs
+ * Socket Mode.
  */
 export function deployEntries(
   env: EnvironmentName,
   rc: string,
   appId: string,
   credentials?: Credentials,
-): { secret: Record<string, string>; ids: Record<string, string> } {
+): Record<string, string> {
+  const environment = ENVIRONMENTS[env];
+  if (environment.socket)
+    throw new Error(
+      `${env} is a Socket Mode app: the service on r1 takes Slack's requests over HTTP.`,
+    );
   const key = envKey(env);
   const clientId = credentials?.client_id ?? exportOf(rc, `${key}_CLIENT_ID`);
   const clientSecret =
@@ -171,11 +179,11 @@ export function deployEntries(
       `${missing.join(", ")} not in the rc: Slack answers them only when it creates the app.`,
     );
   return {
-    secret: {
-      DATALAYER_SLACK_SIGNING_SECRET: signingSecret,
-      DATALAYER_SLACK_CLIENT_SECRET: clientSecret,
-    },
-    ids: { DATALAYER_SLACK_APP_ID: appId, DATALAYER_SLACK_CLIENT_ID: clientId },
+    DATALAYER_SLACK_APP_ID: appId,
+    DATALAYER_SLACK_CLIENT_ID: clientId,
+    DATALAYER_SLACK_CLIENT_SECRET: clientSecret,
+    DATALAYER_SLACK_SIGNING_SECRET: signingSecret,
+    DATALAYER_SLACK_PUBLIC_URL: environment.baseUrl,
   };
 }
 
@@ -238,53 +246,20 @@ async function writeRc(path: string, text: string): Promise<void> {
   await chmod(path, mode & 0o777);
 }
 
-/** kubectl patch of the Secret, the values read from stdin, never argv. */
-export function patchSecret(
-  namespace: string,
-  name: string,
-  values: Record<string, string>,
-  spawnImpl: typeof spawn = spawn,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawnImpl(
-      "kubectl",
-      [
-        "patch",
-        "secret",
-        name,
-        "-n",
-        namespace,
-        "--type",
-        "merge",
-        "--patch-file",
-        "/dev/stdin",
-      ],
-      { stdio: ["pipe", "ignore", "inherit"] },
-    );
-    child.on("error", reject);
-    child.on("exit", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new Error(`kubectl patch secret ${name}: exit ${code}`)),
-    );
-    child.stdin?.end(JSON.stringify({ stringData: values }));
-  });
-}
-
 async function main(argv: string[]): Promise<void> {
   const env = argv.find((one) => !one.startsWith("--")) as
     | EnvironmentName
     | undefined;
   if (!env || !ENVIRONMENT_NAMES.includes(env))
     throw new Error(
-      `usage: slack-app <${ENVIRONMENT_NAMES.join("|")}> [--k8s-secret namespace/name]`,
+      `usage: slack-app <${ENVIRONMENT_NAMES.join("|")}> [--deploy]`,
     );
-  const k8sIndex = argv.indexOf("--k8s-secret");
-  const k8sTarget = k8sIndex >= 0 ? argv[k8sIndex + 1] : undefined;
-  if (k8sIndex >= 0 && !k8sTarget?.includes("/"))
-    throw new Error(
-      "--k8s-secret takes namespace/name, e.g. datalayer-api/datalayer-slack-env",
-    );
+  const unknown = argv.filter(
+    (one) => one.startsWith("--") && one !== "--deploy",
+  );
+  if (unknown.length)
+    throw new Error(`unknown option ${unknown.join(", ")}: only --deploy.`);
+  const deploy = argv.includes("--deploy");
   const rcPath = process.env.DATALAYER_SLACK_RC ?? RC_DEFAULT;
   const deployRcPath =
     process.env.DATALAYER_SLACK_DEPLOY_RC ?? DEPLOY_RC_DEFAULT;
@@ -330,21 +305,14 @@ async function main(argv: string[]): Promise<void> {
       `Updated ${env} app ${outcome.appId} from manifests/${env}.yaml.`,
     );
   }
-  if (k8sTarget) {
-    const deploy = deployEntries(env, rc, outcome.appId, outcome.credentials);
-    const [namespace, name] = k8sTarget.split("/");
-    if (!namespace || !name)
-      throw new Error(`SECRET= must be namespace/name, not ${k8sTarget}.`);
-    await patchSecret(namespace, name, deploy.secret);
-    console.log(
-      `Signing and client secrets written to the Secret ${k8sTarget}.`,
-    );
+  if (deploy) {
+    const entries = deployEntries(env, rc, outcome.appId, outcome.credentials);
     await writeRc(
       deployRcPath,
-      withExports(await readFile(deployRcPath, "utf8"), deploy.ids),
+      withExports(await readFile(deployRcPath, "utf8"), entries),
     );
     console.log(
-      `DATALAYER_SLACK_APP_ID and DATALAYER_SLACK_CLIENT_ID of ${outcome.appId} saved to ${deployRcPath}.`,
+      `${Object.keys(entries).join(", ")} of ${outcome.appId} saved to ${deployRcPath}; \`p reup datalayer-slack\` gives them to the chart.`,
     );
   }
 }
