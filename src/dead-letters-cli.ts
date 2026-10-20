@@ -14,6 +14,10 @@ import { operatorOf, OperatorRefused } from "./operator.js";
  * `slack_jobs`, as the operator their own Datalayer key is
  * (DATALAYER_OPERATOR_KEY, checked at IAM, DATALAYER_IAM_URL), who must hold
  * the platform role; their uid is kept with every replay and payload read.
+ * Once the roles are split (migrations/roles/), DATABASE_URL is
+ * slack_dead_letters', whose `slack_jobs` holds dead jobs only; the
+ * service's role, whose queue has none, is refused rather than shown an
+ * empty list.
  */
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -36,11 +40,28 @@ try {
 }
 const database = createDatabase(url);
 try {
-  process.exitCode = await runDeadLettersCli(
-    deadLetters(database, "slack", new Logger(undefined, undefined, LOG_SALT)),
-    process.argv.slice(2),
-    operator,
+  const { rows } = await database.query<{ schema: string | null }>(
+    `SELECT n.nspname AS schema FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.oid = to_regclass('slack_jobs')`,
   );
+  const schema = rows[0]?.schema;
+  if (schema !== "public" && schema !== "slack_dead_letters") {
+    console.error(
+      "This database role's queue has no dead jobs: connect as slack_dead_letters.",
+    );
+    process.exitCode = 1;
+  } else {
+    process.exitCode = await runDeadLettersCli(
+      deadLetters(
+        database,
+        "slack",
+        new Logger(undefined, undefined, LOG_SALT),
+      ),
+      process.argv.slice(2),
+      operator,
+    );
+  }
 } finally {
   await database.end();
 }

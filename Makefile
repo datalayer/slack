@@ -20,7 +20,11 @@
 #        when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and DATALAYER_OTEL_API_KEY are set (S-101); an inbound event's
 #        idempotency record (S-004, migration 009) on agent-runtimes 1.5.55's host contracts (bind_session).
 #        From abcdb6d or later.
-VERSION ?= 0.1.6
+# 0.1.7: the production app's origin slack.datalayer.run (7f1ba31); dead letters behind their own database
+#        role, off until the chart's slack.databaseRoles (S-405: migration 010's database_role on the audit,
+#        migrations/roles/ applied by `migrate --roles` as slack_owner, the dead-letters bin refusing the
+#        service's role). From the S-405 commit or later.
+VERSION ?= 0.1.7
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 

@@ -570,7 +570,59 @@ npm run migrate
 
 The PostgreSQL queue uses `FOR UPDATE SKIP LOCKED`, so multiple workers may process different Slack jobs safely. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes (a job being worked renews its lease every minute).
 
-Dead jobs are handled with `DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list | replay <id> | payload <id> <reason>`. The key is checked at IAM (`GET /api/iam/v1/whoami` at `DATALAYER_IAM_URL`, prod1 by default): the operator is the person it is, and only with the `platform_admin` role; their uid is what every replay and payload read keeps. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept in `slack_job_replays` with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept in `slack_payload_access`, and its credentials are redacted. Neither the container's user nor a name typed in the environment is ever taken for the operator. Not built yet: a separate database role for payload reads.
+Dead jobs are handled with `DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list | replay <id> | payload <id> <reason>`. The key is checked at IAM (`GET /api/iam/v1/whoami` at `DATALAYER_IAM_URL`, prod1 by default): the operator is the person it is, and only with the `platform_admin` role; their uid is what every replay and payload read keeps. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept in `slack_job_replays` with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept in `slack_payload_access`, and its credentials are redacted. Neither the container's user nor a name typed in the environment is ever taken for the operator. Each read and replay also keeps the database role that did it (`database_role`, migration 010).
+
+### Database roles (S-405)
+
+By default the service's role (`slack`, the owner CNPG creates) owns every table and runs the migrations, so it can read a dead job's payload. The split, off by default, takes that away:
+
+- `slack_owner` owns the tables and runs the migrations, then `migrations/roles/` (`node dist/migrate.js --roles`, with `DATALAYER_SLACK_SERVICE_ROLE=slack`).
+- The service's role keeps its tables and reaches the queue through the view `slack.slack_jobs`, which has no dead job (the default `search_path`, `"$user", public`, finds it first); it may not read `public.slack_jobs` or the audit.
+- `slack_dead_letters` reads dead jobs only (`slack_dead_letters.slack_jobs`), replays them, and appends the audit, which it may not read or change. The dead-letters bin refuses the service's role.
+
+On r1, once:
+
+1. Create the two roles' Secrets in `datalayer-api`, of type `kubernetes.io/basic-auth`, each with the keys `username` and `password` (a password of URL-safe characters, such as `openssl rand -hex 32`): `datalayer-slack-db-owner` (`username: slack_owner`) and `datalayer-slack-db-dead-letters` (`username: slack_dead_letters`).
+2. Deploy with `DATALAYER_SLACK_DATABASE_ROLES=create`: the image with migration 010, still migrated as `slack`; CNPG creates the two login roles from the Secrets (`slack.databaseRoles.create`).
+3. As a superuser, in the `slack` database (for instance `kubectl exec -i -n datalayer-api datalayer-slack-postgresql-1 -c postgres -- psql -v ON_ERROR_STOP=1 -d slack` on the primary), move the tables to `slack_owner`. The service keeps running: its role is granted the tables back until the next step takes the queue's and the audit's away.
+
+<!-- one-time-owner-sql -->
+
+```sql
+BEGIN;
+CREATE SCHEMA IF NOT EXISTS slack AUTHORIZATION slack_owner;
+CREATE SCHEMA IF NOT EXISTS slack_dead_letters AUTHORIZATION slack_owner;
+GRANT CREATE ON SCHEMA public TO slack_owner;
+ALTER TABLE slack_event_claims OWNER TO slack_owner;
+ALTER TABLE slack_jobs OWNER TO slack_owner;
+ALTER TABLE slack_usage OWNER TO slack_owner;
+ALTER TABLE slack_payload_access OWNER TO slack_owner;
+ALTER TABLE slack_job_replays OWNER TO slack_owner;
+ALTER TABLE slack_app_allowances OWNER TO slack_owner;
+ALTER TABLE slack_app_defaults OWNER TO slack_owner;
+ALTER TABLE slack_approval_cards OWNER TO slack_owner;
+ALTER TABLE slack_channel_bindings OWNER TO slack_owner;
+ALTER TABLE slack_deliveries OWNER TO slack_owner;
+ALTER TABLE slack_finished_events OWNER TO slack_owner;
+ALTER TABLE slack_held_prompts OWNER TO slack_owner;
+ALTER TABLE slack_installations OWNER TO slack_owner;
+ALTER TABLE slack_oauth_installations OWNER TO slack_owner;
+ALTER TABLE slack_thread_binding_history OWNER TO slack_owner;
+ALTER TABLE slack_thread_bindings OWNER TO slack_owner;
+ALTER TABLE slack_thread_next_application OWNER TO slack_owner;
+ALTER TABLE slack_thread_turns OWNER TO slack_owner;
+ALTER TABLE slack_user_event_policies OWNER TO slack_owner;
+ALTER TABLE slack_user_links OWNER TO slack_owner;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO slack;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO slack;
+COMMIT;
+```
+
+<!-- /one-time-owner-sql -->
+
+4. Deploy with `DATALAYER_SLACK_DATABASE_ROLES=enforce` (`slack.databaseRoles.enforce`): the migrate job runs as `slack_owner` with `--roles`, which refuses to run while any `slack_` table or function, or either schema, is not `slack_owner`'s, and names it. The `datalayer-slack-dead-letters` Deployment (no replica) holds the reader's `DATABASE_URL`: scale it to one, then `kubectl exec -n datalayer-api deploy/datalayer-slack-dead-letters -- env DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list`, and back to zero.
+
+Who may run the bin is who may exec into that Deployment (Kubernetes RBAC, recorded in the API server's audit log) and holds a Datalayer key with the `platform_admin` role; the uid IAM names is the operator every row keeps, beside the database role.
 
 ## Checks
 
