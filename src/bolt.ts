@@ -564,6 +564,23 @@ export function registerSlackListeners(
     }
   });
 
+  // Slack's own Stop on a streamed answer (S-206): Slack ends the stream and
+  // says only the thread and who pressed it; the thread's running turn is
+  // stopped under the button's rules. Without this event subscribed, Slack
+  // says "Stop is not available for this agent".
+  app.event("agent_session_stopped", async ({ body, event, logger }) => {
+    const key = installationKeyOf(body);
+    if (!key || !event.channel || !event.thread_ts || !event.user) return;
+    try {
+      await worker.stopThread(
+        { ...key, channelId: event.channel, threadTs: event.thread_ts },
+        event.user,
+      );
+    } catch (error) {
+      logger.error("Failed to stop the turn", error);
+    }
+  });
+
   // *Open in Datalayer* (S-306): each press mints its own one-use link,
   // for the conversation's own person, said privately.
   app.action(OPEN_ACTION, async ({ ack, body, logger }) => {

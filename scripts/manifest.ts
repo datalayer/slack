@@ -60,6 +60,9 @@ export const MANIFEST_BOT_SCOPES = [
 
 /** The events the service handles, in order. */
 export const MANIFEST_BOT_EVENTS = [
+  // Slack's native Stop on a streamed answer (S-206): without it Slack says
+  // "Stop is not available for this agent".
+  "agent_session_stopped",
   "app_home_opened",
   "app_mention",
   "app_uninstalled",

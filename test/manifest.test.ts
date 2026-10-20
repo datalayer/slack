@@ -53,7 +53,7 @@ describe("the manifests as code (S-006, S-107)", () => {
   });
 
   it.each(ENVIRONMENT_NAMES)(
-    "%s parses to exactly its five scopes, its six events, the Agent surface and its own URLs",
+    "%s parses to exactly its five scopes, its seven events, the Agent surface and its own URLs",
     async (name) => {
       const manifest = validate(await committed(name), name);
       expect(manifest.oauth_config.scopes).toEqual({

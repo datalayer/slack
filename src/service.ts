@@ -511,6 +511,25 @@ export class SlackAgentService {
     }
     return "stopped";
   }
+
+  /**
+   * Slack's own Stop (S-206, `agent_session_stopped`): pressed on a streamed
+   * answer, it names only its thread, so the thread's running turn is the
+   * one stopped, under the same rules as the button's.
+   */
+  async stopRunning(
+    thread: ThreadKey,
+    slackUserId: string,
+  ): Promise<"stopped" | "not-running" | "not-a-member" | "not-linked"> {
+    const turn = await this.store.getTurn(thread);
+    if (!turn || turn.state !== "running" || !turn.sessionId)
+      return "not-running";
+    return this.stop(
+      thread,
+      { e: turn.eventId, r: turn.runId, s: turn.sessionId },
+      slackUserId,
+    );
+  }
 }
 
 export function slackThreadKey(input: {

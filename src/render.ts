@@ -92,6 +92,12 @@ export class TurnRenderer {
   #pendingText = "";
   #streamed = 0;
   #streamCut = false;
+  /**
+   * Why Slack refused the stream once it had begun (S-206): Slack's own Stop
+   * ends it (`agent_session_stopped`). The rest waits for the end, then
+   * replaces the message whole.
+   */
+  #streamEnded?: string;
   /** Why Slack refused to stream this answer, when it did: the placeholder was used instead. */
   streamRefused?: string;
   /** The run the stream named: what the Stop button says it stops. */
@@ -172,7 +178,7 @@ export class TurnRenderer {
     const ts = await this.begin();
     if (this.#streaming && this.slack.streaming) {
       const streaming = this.slack.streaming;
-      await this.#flushStream(true);
+      if (!this.#streamEnded) await this.#flushStream(true);
       // Slack appends these blocks under the streamed words: what the stream
       // did not carry (files, sources, the question, the status, the
       // actions), never the answer a second time.
@@ -184,10 +190,17 @@ export class TurnRenderer {
         streamed: true,
         threadMenu: true,
       });
-      await this.limiter.run("chat.stopStream", this.key.channelId, () =>
-        streaming.stop(this.key, ts, final),
-      );
-    } else {
+      // Still asked once Slack ended the stream: it is what moves Slack's
+      // session out of processing; refused, the message is replaced below.
+      try {
+        await this.limiter.run("chat.stopStream", this.key.channelId, () =>
+          streaming.stop(this.key, ts, final),
+        );
+      } catch (error) {
+        this.#endedBySlack(error);
+      }
+    }
+    if (!this.#streaming || this.#streamEnded) {
       await this.limiter.run("chat.update", this.key.channelId, () =>
         this.slack.updateMessage(this.key, ts, this.#message()),
       );
@@ -202,8 +215,11 @@ export class TurnRenderer {
 
   async #publish(): Promise<void> {
     const ts = await this.begin();
-    if (this.#streaming) await this.#flushStream();
-    else
+    if (this.#streaming) {
+      // Ended by Slack: the whole message is written once, at the end.
+      if (!this.#streamEnded) await this.#flushStream();
+      if (this.#streamEnded) return;
+    } else
       await this.limiter.run("chat.update", this.key.channelId, () =>
         this.slack.updateMessage(this.key, ts, this.#message()),
       );
@@ -234,12 +250,24 @@ export class TurnRenderer {
           ? text.length
           : entitySafeCut(text, at + STREAM_LIMITS.chunk);
       const chunk = text.slice(at, end);
-      await this.limiter.run("chat.appendStream", this.key.channelId, () =>
-        streaming.append(this.key, ts, chunk),
-      );
+      try {
+        await this.limiter.run("chat.appendStream", this.key.channelId, () =>
+          streaming.append(this.key, ts, chunk),
+        );
+      } catch (error) {
+        this.#endedBySlack(error);
+        return;
+      }
       this.#streamed += chunk.length;
       at = end;
     }
+  }
+
+  /** Slack's refusal of a begun stream ends it; anything else fails the turn. */
+  #endedBySlack(error: unknown): void {
+    const refusal = slackRefusalOf(error);
+    if (!refusal) throw error;
+    this.#streamEnded = refusal;
   }
 
   #message() {

@@ -22,6 +22,7 @@ import {
   FakeSlack,
   installedStore,
   keptLogger,
+  platformError,
   promptOf,
 } from "./support/fakes.js";
 
@@ -235,5 +236,116 @@ describe("Stop while an answer streams: the busy notice (S-206)", () => {
     expect(allText(slack.of("chat.stopStream").at(-1)?.message)).toContain(
       "Stopped by <@U2>",
     );
+  });
+});
+
+/** The app of these tests, its listeners registered on `service`. */
+function appOf(service: SlackAgentService): App {
+  const app = new App({
+    authorize: async () => ({ botToken: "xoxb-test", botUserId: "B1" }),
+    signingSecret: "signing-secret",
+  });
+  registerSlackListeners(
+    app,
+    readConfig({
+      NODE_ENV: "test",
+      DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+    }),
+    service,
+    new KeptQueue(),
+    { consume: false },
+  );
+  return app;
+}
+
+/** Slack's own Stop pressed in a thread (`agent_session_stopped`). */
+const slackStop = (app: App, user: string, threadTs = "1.0") =>
+  app.processEvent({
+    ack: async () => undefined,
+    body: {
+      api_app_id: "A1",
+      authorizations: [{ is_bot: true, user_id: "B1" }],
+      event: {
+        channel: "C1",
+        event_ts: "9.2",
+        streaming_message_ts: ["2.0"],
+        thread_ts: threadTs,
+        type: "agent_session_stopped",
+        user,
+      },
+      event_id: `EvStop-${user}`,
+      event_time: 1,
+      team_id: "T1",
+      type: "event_callback",
+    },
+  });
+
+describe("Slack's own Stop on a streamed answer (S-206, agent_session_stopped)", () => {
+  it("stops the thread's running turn as the person who pressed it, and says who", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack({ streaming: true });
+    const agents = stoppable();
+    const service = serviceOf(store, agents, slack);
+    const app = appOf(service);
+    const turn = service.handlePrompt(promptOf(), "B1");
+    await tick();
+    await slackStop(app, "U2");
+    expect(agents.stops).toHaveLength(1);
+    expect(agents.stops[0]).toMatchObject({
+      request: { principalId: "bob" },
+      sessionId: "S1",
+    });
+    await turn;
+    expect(allText(slack.of("chat.stopStream").at(-1)?.message)).toContain(
+      "Stopped by <@U2>",
+    );
+  });
+
+  it("stops nothing in another thread, and says nothing once the answer is done", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack({ streaming: true });
+    const service = serviceOf(store, new FakeAgents(), slack);
+    const app = appOf(service);
+    await service.handlePrompt(promptOf(), "B1");
+    await slackStop(app, "U1");
+    await slackStop(app, "U1", "7.0");
+    expect(slack.of("private")).toHaveLength(0);
+  });
+
+  it("asks a person who is not connected to connect, and stops nothing", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack({ streaming: true });
+    const agents = stoppable();
+    const service = serviceOf(store, agents, slack);
+    const app = appOf(service);
+    void service.handlePrompt(promptOf(), "B1");
+    await tick();
+    await slackStop(app, "U9");
+    expect(agents.stops).toHaveLength(0);
+    expect(allText(slack.of("private").at(-1)?.message)).toContain(
+      "Connect your Datalayer account to stop an answer",
+    );
+  });
+
+  it("writes the whole answer once Slack has ended its stream", async () => {
+    const store = await installedStore({ defaultApplication: "dep-1" });
+    const slack = new FakeSlack({ streaming: true });
+    // Slack ended the stream on its own Stop: appending to it is refused.
+    slack.fail(
+      "chat.appendStream",
+      platformError("message_not_in_streaming_state"),
+    );
+    slack.fail(
+      "chat.stopStream",
+      platformError("message_not_in_streaming_state"),
+    );
+    const service = serviceOf(store, new FakeAgents(), slack);
+    await service.handlePrompt(promptOf(), "B1");
+    const final = slack.of("chat.update").at(-1)?.message;
+    expect(final).toBeDefined();
+    expect(allText(final)).not.toContain(
+      "connection to Datalayer was interrupted",
+    );
+    expect(allText(final)).toContain("Hello from Datalayer.");
   });
 });

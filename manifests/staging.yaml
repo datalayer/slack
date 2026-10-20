@@ -28,6 +28,7 @@ settings:
   event_subscriptions:
     request_url: "https://slack-staging.datalayer.run/slack/events"
     bot_events:
+      - agent_session_stopped
       - app_home_opened
       - app_mention
       - app_uninstalled

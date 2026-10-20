@@ -363,6 +363,24 @@ export class SlackWorker {
       await this.service.privately(thread, slackUserId, {
         text: "That answer is not running any more.",
       });
+    await this.#refusedStop(thread, slackUserId, outcome);
+  }
+
+  /**
+   * Slack's own Stop on a streamed answer (S-206, `agent_session_stopped`):
+   * the thread's running turn. Slack has already ended the stream; a turn
+   * that has finished says nothing.
+   */
+  async stopThread(thread: ThreadKey, slackUserId: string): Promise<void> {
+    const outcome = await this.service.stopRunning(thread, slackUserId);
+    await this.#refusedStop(thread, slackUserId, outcome);
+  }
+
+  async #refusedStop(
+    thread: ThreadKey,
+    slackUserId: string,
+    outcome: Awaited<ReturnType<SlackAgentService["stop"]>>,
+  ): Promise<void> {
     if (outcome === "not-a-member")
       await this.service.privately(thread, slackUserId, {
         text: NOT_A_MEMBER_HOME,
