@@ -165,8 +165,10 @@ describe("Bind at install", () => {
     const [bind, hook] = calls;
     expect(bind?.body).toEqual({
       code: CODE,
+      custom_app_id: "",
       external_id: "A1:-:T1",
       name: "Acme",
+      provider: "datalayer",
     });
     expect(Object.keys(bind!.body!).sort()).toEqual(
       Object.keys(contracts.bind.request).sort(),

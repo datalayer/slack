@@ -30,7 +30,9 @@
 #        (app id, signing secret, bot token; checked with auth.test and bots.info, bound at Datalayer as a
 #        custom installation), its events at /slack/apps/<app_id>/events verified with its own secret and
 #        handed to a second Bolt app authorized from the store (migration 011, slack_custom_apps).
-VERSION ?= 0.1.9
+# 0.1.10: the bind asserts the provider — Datalayer's own app binds as `datalayer`, a custom app as `custom` with
+#        its app id (agent-runtimes 1.5.88's portable hosts client; ai-agents 0.0.94 refuses a bind without it).
+VERSION ?= 0.1.10
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 

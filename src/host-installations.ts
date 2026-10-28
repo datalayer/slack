@@ -1,6 +1,7 @@
 import {
   LINK_PAGE_PATH,
   type BoundHost,
+  type HostProvider,
   type DatalayerHostClient,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
@@ -86,13 +87,25 @@ export class HostInstallations implements AccountLinks {
     readonly options: HostInstallationsOptions,
   ) {}
 
-  /** Bind the workspace with the Ship card's code: its key, answered once. */
+  /**
+   * Bind the workspace with the Ship card's code, saying which app this is —
+   * Datalayer's own (`datalayer`) or the person's (`custom`, with its app
+   * id): its key, answered once. Datalayer refuses another app than the one
+   * the installation was registered for.
+   */
   async bind(
     key: SlackInstallationKey,
     code: string,
-    name?: string,
+    name: string | undefined,
+    app: { provider: HostProvider; customAppId?: string },
   ): Promise<BoundHost> {
-    return this.client.bind({ code, externalId: externalIdOf(key), name });
+    return this.client.bind({
+      code,
+      externalId: externalIdOf(key),
+      name,
+      provider: app.provider,
+      customAppId: app.customAppId,
+    });
   }
 
   /**

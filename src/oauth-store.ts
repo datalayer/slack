@@ -49,7 +49,9 @@ export class PostgresInstallationStore implements InstallationStore {
     const code = bindCodeOfInstallation(installation);
     let bound: BoundHost | undefined;
     if (code && this.hosts)
-      bound = await this.hosts.bind(domainKey, code, installation.team?.name);
+      bound = await this.hosts.bind(domainKey, code, installation.team?.name, {
+        provider: "datalayer",
+      });
     const key = oauthKey(appId, installation.enterprise?.id, teamId);
     // Kept without its metadata: the bind code is spent once here, and Bolt's
     // token refresh stores the fetched installation again (S-102).

@@ -122,13 +122,17 @@ export function slackAuthPort(client: {
   const str = (value: unknown): string =>
     typeof value === "string" ? value : "";
   const record = (value: unknown): Record<string, unknown> =>
-    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
   return {
     async authTest(token) {
       const answer = record(await client.auth.test({ token }));
       const metadata = record(answer.response_metadata);
       const scopes = Array.isArray(metadata.scopes)
-        ? metadata.scopes.filter((one): one is string => typeof one === "string")
+        ? metadata.scopes.filter(
+            (one): one is string => typeof one === "string",
+          )
         : [];
       return {
         botId: str(answer.bot_id),
@@ -197,7 +201,11 @@ export async function installCustomApp(
     });
     return { error: CUSTOM_WORDS.token, ok: false };
   }
-  if (!SLACK_ID.test(who.teamId) || !SLACK_ID.test(who.botId) || !SLACK_ID.test(who.botUserId))
+  if (
+    !SLACK_ID.test(who.teamId) ||
+    !SLACK_ID.test(who.botId) ||
+    !SLACK_ID.test(who.botUserId)
+  )
     return { error: CUSTOM_WORDS.token, ok: false };
   if (who.isEnterpriseInstall)
     return { error: CUSTOM_WORDS.enterprise, ok: false };
@@ -221,7 +229,10 @@ export async function installCustomApp(
   };
   let bound;
   try {
-    bound = await hosts.bind(key, request.bind_code, who.teamName);
+    bound = await hosts.bind(key, request.bind_code, who.teamName, {
+      customAppId: appId,
+      provider: "custom",
+    });
   } catch (error) {
     if (!(error instanceof HostRefusedError)) throw error;
     logger.warn("custom_install.bind_refused", { status: error.status });
@@ -304,7 +315,9 @@ export function createCustomAppsBolt(config: Config, store: SlackStore): App {
       store.getCustomApp(appId),
     ]);
     if (!installation || installation.status !== "active" || !app)
-      throw new Error("No custom Slack app of that id is installed in that workspace.");
+      throw new Error(
+        "No custom Slack app of that id is installed in that workspace.",
+      );
     return {
       botId: app.botId,
       botToken: installation.botToken,
@@ -384,11 +397,17 @@ export function customAppRoutes(
     response: ServerResponse,
   ): Promise<void> => {
     if (request.method === "OPTIONS") {
-      response.writeHead(request.headers.origin === origin ? 204 : 403, cors(request));
+      response.writeHead(
+        request.headers.origin === origin ? 204 : 403,
+        cors(request),
+      );
       response.end();
       return;
     }
-    if (request.headers.origin !== undefined && request.headers.origin !== origin)
+    if (
+      request.headers.origin !== undefined &&
+      request.headers.origin !== origin
+    )
       return answer(request, response, 403, { error: CUSTOM_WORDS.invalid });
     let raw: Buffer;
     try {
