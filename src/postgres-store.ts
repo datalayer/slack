@@ -21,6 +21,7 @@ import {
   type TurnClaim,
   installationKey,
   type ApprovalCard,
+  type SlackCustomApp,
   type SlackInstallation,
   type SlackInstallationKey,
   type SlackUserLink,
@@ -39,6 +40,14 @@ const INGRESS_CLAIM = "ingress:";
 const enterprise = (value?: string): string => value ?? "";
 const dateString = (value: Date | string): string =>
   new Date(value).toISOString();
+
+type CustomAppRow = Readonly<{
+  app_id: string;
+  team_id: string;
+  bot_id: string;
+  signing_secret: EncryptedSecret;
+  created_at: Date | string;
+}>;
 
 type InstallationRow = Readonly<{
   app_id: string;
@@ -165,6 +174,8 @@ type CardRow = Readonly<{
 /** What a host key and a delivery secret are encrypted with: bound to their installation. */
 const refreshTokenData = (key: SlackInstallationKey): string =>
   `bot-refresh-token:${installationKey(key)}`;
+/** What a custom app's signing secret is bound to (its associated data). */
+const customAppData = (appId: string): string => `custom-app:${appId}`;
 const hostKeyData = (key: SlackInstallationKey): string =>
   `host-key:${installationKey(key)}`;
 const deliverySecretData = (key: SlackInstallationKey): string =>
@@ -316,6 +327,60 @@ export class PostgresSlackStore implements SlackStore {
         card.decidedBySlackUserId ?? null,
       ],
     );
+  }
+
+  async getCustomApp(appId: string): Promise<SlackCustomApp | undefined> {
+    const result = await this.database.query<CustomAppRow>(
+      "SELECT * FROM slack_custom_apps WHERE app_id = $1",
+      [appId],
+    );
+    const row = result.rows[0];
+    return row ? this.#customApp(row) : undefined;
+  }
+
+  async putCustomApp(app: SlackCustomApp): Promise<void> {
+    await this.database.query(
+      `INSERT INTO slack_custom_apps (app_id, team_id, bot_id, signing_secret, created_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (app_id) DO UPDATE SET
+         team_id = EXCLUDED.team_id,
+         bot_id = EXCLUDED.bot_id,
+         signing_secret = EXCLUDED.signing_secret`,
+      [
+        app.appId,
+        app.teamId,
+        app.botId,
+        this.cipher.encrypt(app.signingSecret, customAppData(app.appId)),
+        app.createdAt,
+      ],
+    );
+  }
+
+  async listCustomApps(): Promise<SlackCustomApp[]> {
+    const result = await this.database.query<CustomAppRow>(
+      "SELECT * FROM slack_custom_apps ORDER BY created_at",
+    );
+    return result.rows.map((row) => this.#customApp(row));
+  }
+
+  async deleteCustomApp(appId: string): Promise<void> {
+    await this.database.query(
+      "DELETE FROM slack_custom_apps WHERE app_id = $1",
+      [appId],
+    );
+  }
+
+  #customApp(row: CustomAppRow): SlackCustomApp {
+    return {
+      appId: row.app_id,
+      botId: row.bot_id,
+      createdAt: dateString(row.created_at),
+      signingSecret: this.cipher.decrypt(
+        row.signing_secret,
+        customAppData(row.app_id),
+      ),
+      teamId: row.team_id,
+    };
   }
 
   async getInstallationByHostUid(

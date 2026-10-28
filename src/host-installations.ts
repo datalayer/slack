@@ -252,6 +252,10 @@ export class HostInstallations implements AccountLinks {
       );
     } finally {
       await this.store.deleteInstallation(key);
+      // A custom app the person brought (custom-apps.ts) is installed in
+      // one workspace: its signing secret goes with its installation.
+      if (await this.store.getCustomApp(key.appId))
+        await this.store.deleteCustomApp(key.appId);
     }
   }
 }

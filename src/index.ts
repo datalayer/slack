@@ -25,12 +25,21 @@ import {
   seedDevelopmentInstallation,
 } from "./bolt.js";
 import { deliveryUrlOf, readConfig } from "./config.js";
+import {
+  createCustomAppsBolt,
+  customAppRoutes,
+  slackAuthPort,
+} from "./custom-apps.js";
 import { DeliveryHandler, deliverySinkOf } from "./deliveries.js";
 import { healthRoutes } from "./health.js";
 import { LOG_SALT } from "./observability.js";
 import { HostInstallations } from "./host-installations.js";
 import { SignedStateStore } from "./oauth-state.js";
-import { INBOUND_PURGE_MS, type ThreadKey } from "./domain.js";
+import {
+  INBOUND_PURGE_MS,
+  type SlackInstallationKey,
+  type ThreadKey,
+} from "./domain.js";
 import { createRuntimeResources } from "./resources.js";
 import { SlackAgentService } from "./service.js";
 import { bothTracers, OtlpTracer } from "./tracing.js";
@@ -80,11 +89,28 @@ async function main(): Promise<void> {
       `delivery:${job.hostUid}:${job.delivery.delivery}`,
     );
   };
+  // The Bolt app custom apps' requests are handed to (custom-apps.ts): the
+  // same listeners as Datalayer's app's, authorized per app from the store.
+  const customApps = createCustomAppsBolt(config, store);
+  const publicUrl =
+    config.DATALAYER_SLACK_PUBLIC_URL ??
+    (config.DATALAYER_SLACK_REDIRECT_URI
+      ? new URL(config.DATALAYER_SLACK_REDIRECT_URI).origin
+      : `http://localhost:${config.PORT}`);
   const app = createBoltApp(config, {
     customRoutes: [
       ...healthRoutes({
         database: resources.ready,
         queue: () => queue.ready(),
+      }),
+      ...customAppRoutes({
+        auth: slackAuthPort(customApps.client),
+        bolt: customApps,
+        hosts,
+        logger: new Logger(undefined, undefined, LOG_SALT),
+        publicUrl,
+        store,
+        webUrl: config.DATALAYER_WEB_URL,
       }),
       {
         handler: (request, response) =>
@@ -162,15 +188,25 @@ async function main(): Promise<void> {
     config.DATALAYER_WEB_URL,
   );
   const role = config.DATALAYER_SLACK_ROLE;
-  registerSlackListeners(app, config, service, queue, {
-    consume: role !== "ingress",
-    starters: new HostStarters(config.DATALAYER_API_URL, keyed, (key) =>
-      hosts.hostKeyOf(key),
+  const listenerParts = {
+    starters: new HostStarters(
+      config.DATALAYER_API_URL,
+      keyed,
+      (key: SlackInstallationKey) => hosts.hostKeyOf(key),
     ),
     tracer,
     deliveries,
     hosts,
     tokens,
+  };
+  registerSlackListeners(app, config, service, queue, {
+    ...listenerParts,
+    consume: role !== "ingress",
+  });
+  // The same listeners for every custom app; the one queue is consumed once.
+  registerSlackListeners(customApps, config, service, queue, {
+    ...listenerParts,
+    consume: false,
   });
   const poller = new DeliveryPoller(
     deliverySinkOf(store),

@@ -37,6 +37,22 @@ export type SlackInstallation = SlackInstallationKey &
     updatedAt: string;
   }>;
 
+/**
+ * A Slack app the person brings (decided 28 October 2026): their own app,
+ * installed to one workspace from an application's Ship tab with its bot
+ * token pasted. Its installation is a `SlackInstallation` like any (keyed
+ * by its app id); this is what only a custom app has: the signing secret
+ * the service verifies Slack's requests to `/slack/apps/<app_id>/events`
+ * with — encrypted at rest, never logged — and its bot id.
+ */
+export type SlackCustomApp = Readonly<{
+  appId: string;
+  teamId: string;
+  botId: string;
+  signingSecret: string;
+  createdAt: string;
+}>;
+
 export type SlackUserLink = Readonly<{
   datalayerPrincipalId: string;
   linkedAt: string;

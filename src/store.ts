@@ -22,6 +22,7 @@ import {
   threadKey,
   userLinkKey,
   type ApprovalCard,
+  type SlackCustomApp,
   type SlackInstallation,
   type SlackInstallationKey,
   type SlackUserLink,
@@ -71,6 +72,11 @@ export interface SlackStore extends QuotaStore {
   getInstallation(
     key: SlackInstallationKey,
   ): Promise<SlackInstallation | undefined>;
+  /** A custom app the person brought, by its app id: its signing secret and bot id. */
+  getCustomApp(appId: string): Promise<SlackCustomApp | undefined>;
+  putCustomApp(app: SlackCustomApp): Promise<void>;
+  listCustomApps(): Promise<SlackCustomApp[]>;
+  deleteCustomApp(appId: string): Promise<void>;
   /** The active installation bound to a Datalayer host installation. */
   getInstallationByHostUid(
     hostUid: string,
@@ -206,6 +212,7 @@ export class MemorySlackStore implements SlackStore {
   readonly #cards = new Map<string, ApprovalCard[]>();
   readonly #events = new Set<string>();
   readonly #installations = new Map<string, SlackInstallation>();
+  readonly #customApps = new Map<string, SlackCustomApp>();
   readonly #links = new Map<string, SlackUserLink>();
   readonly #threads = new Map<string, ThreadBinding>();
   readonly #allowances = new Map<string, AppAllowance[]>();
@@ -309,6 +316,22 @@ export class MemorySlackStore implements SlackStore {
     key: SlackInstallationKey,
   ): Promise<SlackInstallation | undefined> {
     return this.#installations.get(installationKey(key));
+  }
+
+  async getCustomApp(appId: string): Promise<SlackCustomApp | undefined> {
+    return this.#customApps.get(appId);
+  }
+
+  async putCustomApp(app: SlackCustomApp): Promise<void> {
+    this.#customApps.set(app.appId, app);
+  }
+
+  async listCustomApps(): Promise<SlackCustomApp[]> {
+    return [...this.#customApps.values()];
+  }
+
+  async deleteCustomApp(appId: string): Promise<void> {
+    this.#customApps.delete(appId);
   }
 
   async getInstallationByHostUid(

@@ -26,7 +26,11 @@
 #        service's role). From the S-405 commit or later.
 # 0.1.8: Slack's own Stop on a streamed answer (S-206): agent_session_stopped subscribed and handled, the
 #        thread's running turn stopped as the presser; a stream Slack ended is written whole by chat.update.
-VERSION ?= 0.1.8
+# 0.1.9: a Slack app the person brings (decided 28 October 2026): POST /slack/apps/install from the Ship card
+#        (app id, signing secret, bot token; checked with auth.test and bots.info, bound at Datalayer as a
+#        custom installation), its events at /slack/apps/<app_id>/events verified with its own secret and
+#        handed to a second Bolt app authorized from the store (migration 011, slack_custom_apps).
+VERSION ?= 0.1.9
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 
