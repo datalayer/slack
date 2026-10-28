@@ -370,6 +370,30 @@ describe("Uninstall", () => {
     await expect(store.getInstallation(active)).resolves.toBeUndefined();
   });
 
+  it("purges a custom app's signing secret with its installation, and only that app's", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({ ...active, datalayerHostKey: KEY });
+    const custom = {
+      appId: "A1",
+      botId: "B1",
+      createdAt: new Date(0).toISOString(),
+      signingSecret: SECRET,
+      teamId: "T1",
+    };
+    await store.putCustomApp(custom);
+    await store.putCustomApp({ ...custom, appId: "A2", teamId: "T2" });
+    const { fetchImplementation } = wire({
+      [route("uninstalled")]: () =>
+        Response.json({ success: true, links: 0, bindings: 0 }),
+    });
+    await hostsOver(store, fetchImplementation).uninstall(active);
+    await expect(store.getInstallation(active)).resolves.toBeUndefined();
+    await expect(store.getCustomApp("A1")).resolves.toBeUndefined();
+    await expect(store.getCustomApp("A2")).resolves.toMatchObject({
+      appId: "A2",
+    });
+  });
+
   it("still purges a workspace without the Datalayer side (development)", async () => {
     const store = new MemorySlackStore();
     await store.putInstallation(active);
