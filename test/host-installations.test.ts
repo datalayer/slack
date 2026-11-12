@@ -258,6 +258,78 @@ describe("Bind at install", () => {
     expect(JSON.stringify(row)).not.toContain(SECRET);
     expect(row).toContain("inst-1");
   });
+
+  it("keeps the key and version a webhook registered under Datalayer's own key was answered, beside its secret", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation({
+      ...active,
+      datalayerHostKey: KEY,
+      datalayerHostUid: "inst-1",
+    });
+    const { fetchImplementation } = wire({
+      [route("webhook")]: () =>
+        Response.json({
+          success: true,
+          url: "https://slack.example/datalayer/deliveries/inst-1",
+          events: ["approval.requested", "approval.decided", "turn.completed"],
+          version: 3,
+          signing_secret: SECRET,
+          key: "ai-agents-host-deliveries-v1",
+        }),
+    });
+    const hosts = hostsOver(store, fetchImplementation);
+    expect(
+      await hosts.registerDelivery(active, { hostKey: KEY, hostUid: "inst-1" }),
+    ).toBe(true);
+    await expect(store.getInstallation(active)).resolves.toMatchObject({
+      deliveryKey: "ai-agents-host-deliveries-v1",
+      deliverySecret: SECRET,
+      deliveryVersion: 3,
+    });
+    // A reinstall that keeps the secret keeps its key; a new secret replaces both.
+    await hosts.keep({ ...active, botToken: "xoxb-new" });
+    await expect(store.getInstallation(active)).resolves.toMatchObject({
+      deliveryKey: "ai-agents-host-deliveries-v1",
+      deliveryVersion: 3,
+    });
+    await hosts.keepDeliverySecret("inst-1", { secret: "o".repeat(64) });
+    const kept = await store.getInstallation(active);
+    expect(kept?.deliverySecret).toBe("o".repeat(64));
+    expect(kept?.deliveryKey).toBeUndefined();
+    expect(kept?.deliveryVersion).toBeUndefined();
+  });
+
+  it("writes the key and version in the clear, the secret encrypted, and keeps them with the secret", async () => {
+    const queries: Array<{ sql: string; values: unknown[] }> = [];
+    const query = vi.fn(async (sql: string, values?: unknown[]) => {
+      queries.push({ sql, values: values ?? [] });
+      return { rowCount: 1, rows: [] };
+    });
+    const store = new PostgresSlackStore(
+      { query } as unknown as Pool,
+      new SecretCipher(randomBytes(32).toString("base64"), 1),
+    );
+    await store.putInstallation({
+      ...active,
+      datalayerHostUid: "inst-1",
+      deliveryKey: "ai-agents-host-deliveries-v1",
+      deliverySecret: SECRET,
+      deliveryVersion: 2,
+    });
+    const [written] = queries;
+    expect(written?.values).toContain("ai-agents-host-deliveries-v1");
+    expect(written?.values).toContain(2);
+    expect(JSON.stringify(written?.values)).not.toContain(SECRET);
+    expect(written?.sql).toMatch(
+      /delivery_key = CASE WHEN EXCLUDED\.delivery_secret IS NULL/,
+    );
+    // Without a secret, nothing of the key is written: the row keeps its own.
+    await store.putInstallation({
+      ...active,
+      deliveryKey: "ai-agents-host-deliveries-v9",
+    });
+    expect(queries[1]?.values).not.toContain("ai-agents-host-deliveries-v9");
+  });
 });
 
 describe("Link a person", () => {

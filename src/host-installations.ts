@@ -1,6 +1,7 @@
 import {
   LINK_PAGE_PATH,
   type BoundHost,
+  type DeliverySecret,
   type HostProvider,
   type DatalayerHostClient,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
@@ -11,6 +12,19 @@ import {
   type SlackInstallationKey,
 } from "./domain.js";
 import type { SlackStore } from "./store.js";
+
+/** An installation with the delivery secret it keeps replaced: its key and version with it. */
+function withDeliverySecret(
+  installation: SlackInstallation,
+  kept: DeliverySecret,
+): SlackInstallation {
+  return {
+    ...installation,
+    deliveryKey: kept.key,
+    deliverySecret: kept.secret,
+    deliveryVersion: kept.version,
+  };
+}
 
 /** Whether a Slack user is linked, and how one connects. */
 export interface AccountLinks {
@@ -148,16 +162,16 @@ export class HostInstallations implements AccountLinks {
     const url = this.options.deliveryUrlOf?.(bound.hostUid);
     if (!url) return false;
     try {
-      const { signingSecret } = await this.client.setWebhook(
-        bound.hostKey,
-        url,
-      );
+      const hook = await this.client.setWebhook(bound.hostKey, url);
       const installation = await this.store.getInstallation(key);
       if (!installation) return false;
-      await this.store.putInstallation({
-        ...installation,
-        deliverySecret: signingSecret,
-      });
+      await this.store.putInstallation(
+        withDeliverySecret(installation, {
+          key: hook.key,
+          secret: hook.signingSecret,
+          version: hook.version,
+        }),
+      );
       return true;
     } catch (error) {
       this.options.logger?.warn(
@@ -165,6 +179,20 @@ export class HostInstallations implements AccountLinks {
       );
       return false;
     }
+  }
+
+  /**
+   * Keep the secret a webhook registered again is signed with
+   * (`DeliveryRenewal`), where the old one was: the installation bound to
+   * `hostUid`, its key and version beside it.
+   */
+  async keepDeliverySecret(
+    hostUid: string,
+    kept: DeliverySecret,
+  ): Promise<void> {
+    const installation = await this.store.getInstallationByHostUid(hostUid);
+    if (!installation) return;
+    await this.store.putInstallation(withDeliverySecret(installation, kept));
   }
 
   /** The workspace's own host key, kept when it was bound. */

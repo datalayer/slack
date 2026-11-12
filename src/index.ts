@@ -2,6 +2,7 @@ import {
   DatalayerHostClient,
   DELIVERY_ROUTE,
   DeliveryPoller,
+  DeliveryRenewal,
   deliveryRoute,
   DevelopmentCredentials,
   healthServer,
@@ -213,6 +214,13 @@ async function main(): Promise<void> {
     client,
     enqueueDelivery,
   );
+  // A webhook whose secret rests on a key Datalayer no longer signs with is
+  // registered again, and its new secret kept where the old one was.
+  const renewal = new DeliveryRenewal(
+    deliverySinkOf(store),
+    client,
+    (hostUid, kept) => hosts.keepDeliverySecret(hostUid, kept),
+  );
 
   // A worker serves only its health; Slack's requests reach the ingress.
   const health =
@@ -223,7 +231,10 @@ async function main(): Promise<void> {
         }).listen(config.PORT)
       : undefined;
   if (role !== "worker") await app.start(config.PORT);
-  if (role !== "ingress") poller.start(config.DATALAYER_DELIVERY_POLL_SECONDS);
+  if (role !== "ingress") {
+    poller.start(config.DATALAYER_DELIVERY_POLL_SECONDS);
+    renewal.start();
+  }
   app.logger.info(
     `@Datalayer Slack (${role}) is listening on ${config.PORT} (${config.DATALAYER_SLACK_TRANSPORT}).`,
   );
@@ -244,6 +255,7 @@ async function main(): Promise<void> {
     closing = true;
     clearInterval(purge);
     poller.stop();
+    renewal.stop();
     health?.close();
     if (role !== "worker") await app.stop();
     await resources.close();
