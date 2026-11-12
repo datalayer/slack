@@ -602,6 +602,7 @@ ALTER TABLE slack_app_allowances OWNER TO slack_owner;
 ALTER TABLE slack_app_defaults OWNER TO slack_owner;
 ALTER TABLE slack_approval_cards OWNER TO slack_owner;
 ALTER TABLE slack_channel_bindings OWNER TO slack_owner;
+ALTER TABLE slack_custom_apps OWNER TO slack_owner;
 ALTER TABLE slack_deliveries OWNER TO slack_owner;
 ALTER TABLE slack_finished_events OWNER TO slack_owner;
 ALTER TABLE slack_held_prompts OWNER TO slack_owner;

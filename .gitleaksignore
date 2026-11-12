@@ -1,2 +1,4 @@
 # A fake bot token in the redaction test (not a credential); the line now carries gitleaks:allow.
 37992928e95478ea8950ea5984c36576eaa62c9d:test/operations-quotas.test.ts:generic-api-key:158
+# A fake custom app's signing secret in the custom apps test (not a credential).
+12c662b4797bac7c0edd937d615c54d7f749d882:test/custom-apps.test.ts:generic-api-key:37
