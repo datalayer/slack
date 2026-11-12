@@ -30,6 +30,15 @@ export type SlackInstallation = SlackInstallationKey &
     datalayerHostKey?: string;
     /** What Datalayer signs this installation's pushed deliveries with. */
     deliverySecret?: string;
+    /**
+     * The key Datalayer derived that secret under
+     * (`ai-agents-host-deliveries-v<N>`), named by every push; none: the
+     * platform's shared secret, accepted until 31 December 2026 only.
+     * Written with the secret, never apart from it.
+     */
+    deliveryKey?: string;
+    /** The registration's version the secret belongs to. */
+    deliveryVersion?: number;
     datalayerOrganizationId?: string;
     installedBy: string;
     scopes: readonly string[];

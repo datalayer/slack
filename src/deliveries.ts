@@ -59,8 +59,16 @@ export function deliverySinkOf(store: SlackStore): DeliverySink {
           ? [{ hostKey: one.datalayerHostKey, hostUid: one.datalayerHostUid }]
           : [],
       ),
-    deliverySecretOf: async (hostUid) =>
-      (await store.getInstallationByHostUid(hostUid))?.deliverySecret,
+    deliverySecretOf: async (hostUid) => {
+      const installation = await store.getInstallationByHostUid(hostUid);
+      return installation?.deliverySecret
+        ? {
+            key: installation.deliveryKey,
+            secret: installation.deliverySecret,
+            version: installation.deliveryVersion,
+          }
+        : undefined;
+    },
     hostKeyOf: async (hostUid) =>
       (await store.getInstallationByHostUid(hostUid))?.datalayerHostKey,
   };

@@ -32,7 +32,10 @@
 #        handed to a second Bolt app authorized from the store (migration 011, slack_custom_apps).
 # 0.1.10: the bind asserts the provider — Datalayer's own app binds as `datalayer`, a custom app as `custom` with
 #        its app id (agent-runtimes 1.5.88's portable hosts client; ai-agents 0.0.94 refuses a bind without it).
-VERSION ?= 0.1.10
+# 0.1.11: deliveries under Datalayer's own key — the delivery secret kept with its key and version, a push
+#        naming the key kept, a keyless secret accepted until 31 December 2026 only, the webhook registered
+#        again when Datalayer asks (agent-runtimes 1.6.34's DeliveryRenewal; needs ai-agents 0.0.135).
+VERSION ?= 0.1.11
 REGISTRY ?= $(DATALAYER_DOCKER_REGISTRY)
 EXPORT := $(HOME)/.cache/slack-export-$(shell git rev-parse --short HEAD)
 

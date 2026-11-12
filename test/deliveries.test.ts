@@ -16,13 +16,18 @@ import { OPEN_ACTION, openValueOf } from "../src/presentation.js";
 import type { SlackInstallation, ThreadKey } from "../src/domain.js";
 import {
   DatalayerHostClient,
+  DELIVERY_KEY_HEADER,
   DeliveryPoller,
+  DeliveryRenewal,
   deliveryRoute,
+  deliverySignature,
   HostKeyCredentials,
+  SHARED_SECRET_DELIVERIES_UNTIL,
   type DeliveryJob,
   type HostDelivery,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { SlackMessage, SlackPort } from "../src/slack-port.js";
+import { HostInstallations } from "../src/host-installations.js";
 import { MemorySlackStore } from "../src/store.js";
 import { CONTRACTS_PATH } from "./support/contracts.js";
 
@@ -283,6 +288,108 @@ describe("The delivery webhook", () => {
     await at(timestamp)(request(body, headers, "inst-unknown"), unknown.res);
     expect(unknown.sent.status).toBe(404);
     expect(queued).toHaveLength(0);
+  });
+
+  it("verifies a push under Datalayer's own key only when it names the key kept, and a shared-secret one only until 31 December 2026", async () => {
+    const store = new MemorySlackStore();
+    const { body } = contracts.delivery.signing;
+    const late = SHARED_SECRET_DELIVERIES_UNTIL + 60;
+    const queued: DeliveryJob[] = [];
+    const signed = (at: number, key?: string) => ({
+      [contracts.headers.signature!]: deliverySignature(SECRET, at, body),
+      [contracts.headers.timestamp!]: String(at),
+      ...(key ? { [DELIVERY_KEY_HEADER]: key } : {}),
+    });
+    const push = async (at: number, headers: Record<string, string>) => {
+      const answered = response();
+      await deliveryRoute(
+        deliverySinkOf(store),
+        async (job) => void queued.push(job),
+        () => at,
+      )(request(body, headers), answered.res);
+      return answered.sent.status;
+    };
+    // Kept before the switch, without a key: until the window ends, then never.
+    await store.putInstallation(installation);
+    const before = SHARED_SECRET_DELIVERIES_UNTIL - 60;
+    expect(await push(before, signed(before))).toBe(200);
+    expect(await push(late, signed(late))).toBe(401);
+    // Registered again: the push names the key kept, whatever the date.
+    await store.putInstallation({
+      ...installation,
+      deliveryKey: "ai-agents-host-deliveries-v1",
+      deliverySecret: SECRET,
+      deliveryVersion: 2,
+    });
+    expect(await push(late, signed(late, "ai-agents-host-deliveries-v1"))).toBe(
+      200,
+    );
+    expect(await push(late, signed(late))).toBe(401);
+    expect(await push(late, signed(late, "ai-agents-host-deliveries-v2"))).toBe(
+      401,
+    );
+    expect(queued).toHaveLength(2);
+  });
+});
+
+describe("A webhook registered again", () => {
+  it("registers when Datalayer asks, at the address it holds, and keeps the new secret, key and version where the old ones were", async () => {
+    const store = new MemorySlackStore();
+    await store.putInstallation(installation);
+    const url = "https://slack.example/datalayer/deliveries/inst-1";
+    const asked: Array<{ body?: string; key: string }> = [];
+    const client = new DatalayerHostClient(API, (async (
+      input: string | URL,
+      init?: RequestInit,
+    ) => {
+      const key = `${init?.method ?? "GET"} ${String(input).split("?")[0]}`;
+      asked.push({ body: init?.body as string | undefined, key });
+      if (key === route("self"))
+        return Response.json({
+          success: true,
+          host: {
+            uid: "inst-1",
+            deployments: [],
+            delivery: asked.some((one) => one.key === route("webhook"))
+              ? {
+                  url,
+                  version: 2,
+                  key: "ai-agents-host-deliveries-v1",
+                  renew: false,
+                }
+              : { url, version: 1, renew: true },
+          },
+        });
+      if (key === route("webhook"))
+        return Response.json({
+          success: true,
+          url,
+          events: ["approval.requested", "approval.decided", "turn.completed"],
+          version: 2,
+          signing_secret: "n".repeat(64),
+          key: "ai-agents-host-deliveries-v1",
+        });
+      throw new Error(`unexpected ${key}`);
+    }) as typeof fetch);
+    const hosts = new HostInstallations(store, client, { webUrl: WEB });
+    const renewal = new DeliveryRenewal(
+      deliverySinkOf(store),
+      client,
+      (hostUid, kept) => hosts.keepDeliverySecret(hostUid, kept),
+      { warn: () => undefined },
+    );
+    expect(await renewal.renewOnce()).toBe(1);
+    expect((JSON.parse(asked[1]!.body!) as { url: string }).url).toBe(url);
+    await expect(
+      store.getInstallationByHostUid("inst-1"),
+    ).resolves.toMatchObject({
+      datalayerHostKey: KEY,
+      deliveryKey: "ai-agents-host-deliveries-v1",
+      deliverySecret: "n".repeat(64),
+      deliveryVersion: 2,
+    });
+    // Nothing more to do once kept.
+    expect(await renewal.renewOnce()).toBe(0);
   });
 });
 

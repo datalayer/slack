@@ -380,6 +380,13 @@ export class MemorySlackStore implements SlackStore {
       datalayerHostKey:
         installation.datalayerHostKey ?? before?.datalayerHostKey,
       deliverySecret: installation.deliverySecret ?? before?.deliverySecret,
+      // The key and version go with the secret they describe.
+      deliveryKey: installation.deliverySecret
+        ? installation.deliveryKey
+        : before?.deliveryKey,
+      deliveryVersion: installation.deliverySecret
+        ? installation.deliveryVersion
+        : before?.deliveryVersion,
     });
   }
 

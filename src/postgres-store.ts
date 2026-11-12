@@ -59,6 +59,8 @@ type InstallationRow = Readonly<{
   datalayer_host_uid: string | null;
   datalayer_organization_id: string | null;
   delivery_secret: EncryptedSecret | null;
+  delivery_key: string | null;
+  delivery_version: number | null;
   enterprise_id: string;
   installed_by: string;
   scopes: string[];
@@ -469,6 +471,8 @@ export class PostgresSlackStore implements SlackStore {
       deliverySecret: row.delivery_secret
         ? this.cipher.decrypt(row.delivery_secret, deliverySecretData(key))
         : undefined,
+      deliveryKey: row.delivery_key ?? undefined,
+      deliveryVersion: row.delivery_version ?? undefined,
       installedBy: row.installed_by,
       scopes: row.scopes,
       status: row.status,
@@ -528,8 +532,8 @@ export class PostgresSlackStore implements SlackStore {
          (app_id, enterprise_id, team_id, bot_token, bot_user_id, datalayer_organization_id,
           installed_by, scopes, status, updated_at,
           datalayer_host_uid, datalayer_host_key, delivery_secret,
-          bot_refresh_token, bot_token_expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          bot_refresh_token, bot_token_expires_at, delivery_key, delivery_version)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT (app_id, enterprise_id, team_id) DO UPDATE SET
          bot_token = EXCLUDED.bot_token,
          bot_refresh_token = EXCLUDED.bot_refresh_token,
@@ -542,7 +546,11 @@ export class PostgresSlackStore implements SlackStore {
          updated_at = EXCLUDED.updated_at,
          datalayer_host_uid = COALESCE(EXCLUDED.datalayer_host_uid, slack_installations.datalayer_host_uid),
          datalayer_host_key = COALESCE(EXCLUDED.datalayer_host_key, slack_installations.datalayer_host_key),
-         delivery_secret = COALESCE(EXCLUDED.delivery_secret, slack_installations.delivery_secret)`,
+         delivery_secret = COALESCE(EXCLUDED.delivery_secret, slack_installations.delivery_secret),
+         delivery_key = CASE WHEN EXCLUDED.delivery_secret IS NULL
+           THEN slack_installations.delivery_key ELSE EXCLUDED.delivery_key END,
+         delivery_version = CASE WHEN EXCLUDED.delivery_secret IS NULL
+           THEN slack_installations.delivery_version ELSE EXCLUDED.delivery_version END`,
       [
         value.appId,
         enterprise(value.enterpriseId),
@@ -559,6 +567,8 @@ export class PostgresSlackStore implements SlackStore {
         deliverySecret,
         refreshToken,
         value.botTokenExpiresAt ?? null,
+        value.deliverySecret ? (value.deliveryKey ?? null) : null,
+        value.deliverySecret ? (value.deliveryVersion ?? null) : null,
       ],
     );
   }
