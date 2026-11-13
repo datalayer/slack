@@ -1,29 +1,19 @@
-import {
-  deadLetters,
-  Logger,
-  runDeadLettersCli,
-} from "@datalayer/agent-runtimes/lib/portable/hosts";
+import { Logger } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
-import { createDatabase } from "./database.js";
 import { LOG_SALT } from "./observability.js";
 import { operatorOf, OperatorRefused } from "./operator.js";
+import { solrRecordsOf } from "./resources.js";
+import { runDeadLettersCli, SolrDeadLetters } from "./solr/dead-letters.js";
+import { SolrWorkQueue } from "./solr/queue.js";
 
 /**
  * `node dist/dead-letters.js list | replay <id> | payload <id> <reason…>`
- * against DATABASE_URL (S-405): the shared host kit's dead letters over
- * `slack_jobs`, as the operator their own Datalayer key is
- * (DATALAYER_OPERATOR_KEY, checked at IAM, DATALAYER_IAM_URL), who must hold
- * the platform role; their uid is kept with every replay and payload read.
- * Once the roles are split (migrations/roles/), DATABASE_URL is
- * slack_dead_letters', whose `slack_jobs` holds dead jobs only; the
- * service's role, whose queue has none, is refused rather than shown an
- * empty list.
+ * (S-405): the dead jobs of the service's queue in its Solr collection
+ * (the service's own settings, `DATALAYER_SOLR_*`), as the operator their
+ * own Datalayer key is (DATALAYER_OPERATOR_KEY, checked at IAM,
+ * DATALAYER_IAM_URL), who must hold the platform role; their uid is kept
+ * with every replay and payload read. A job's id is its uid.
  */
-const url = process.env.DATABASE_URL;
-if (!url) {
-  console.error("DATABASE_URL is required.");
-  process.exit(1);
-}
 let operator: string;
 try {
   operator = await operatorOf(
@@ -38,30 +28,19 @@ try {
   );
   process.exit(1);
 }
-const database = createDatabase(url);
-try {
-  const { rows } = await database.query<{ schema: string | null }>(
-    `SELECT n.nspname AS schema FROM pg_class c
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.oid = to_regclass('slack_jobs')`,
-  );
-  const schema = rows[0]?.schema;
-  if (schema !== "public" && schema !== "slack_dead_letters") {
-    console.error(
-      "This database role's queue has no dead jobs: connect as slack_dead_letters.",
-    );
-    process.exitCode = 1;
-  } else {
-    process.exitCode = await runDeadLettersCli(
-      deadLetters(
-        database,
-        "slack",
-        new Logger(undefined, undefined, LOG_SALT),
-      ),
-      process.argv.slice(2),
-      operator,
-    );
-  }
-} finally {
-  await database.end();
-}
+const records = solrRecordsOf({
+  DATALAYER_SLACK_SOLR_COLLECTION:
+    process.env.DATALAYER_SLACK_SOLR_COLLECTION?.trim() || "slack",
+  DATALAYER_SOLR_PASSWORD: process.env.DATALAYER_SOLR_PASSWORD,
+  DATALAYER_SOLR_URL: process.env.DATALAYER_SOLR_URL,
+  DATALAYER_SOLR_USERNAME: process.env.DATALAYER_SOLR_USERNAME,
+});
+process.exitCode = await runDeadLettersCli(
+  new SolrDeadLetters(
+    new SolrWorkQueue<unknown>(records),
+    "slack",
+    new Logger(undefined, undefined, LOG_SALT),
+  ),
+  process.argv.slice(2),
+  operator,
+);

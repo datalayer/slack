@@ -27,15 +27,37 @@ describe("configuration", () => {
     ).toThrow(/durable installation|development host token/);
   });
 
-  it("requires a database and encryption key for PostgreSQL", () => {
+  it("requires the Solr collection's settings and an encryption key for Solr", () => {
+    const solr = {
+      DATALAYER_SLACK_STORE: "solr",
+      DATALAYER_SLACK_TRANSPORT: "http",
+      NODE_ENV: "test",
+      DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+    };
+    expect(() => readConfig(solr)).toThrow(/DATALAYER_SOLR_URL/);
+    expect(() => readConfig(solr)).toThrow(/DATALAYER_SOLR_PASSWORD/);
+    expect(() => readConfig(solr)).toThrow(
+      /DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY/,
+    );
     expect(() =>
       readConfig({
-        DATALAYER_SLACK_STORE: "postgres",
-        DATALAYER_SLACK_TRANSPORT: "http",
-        NODE_ENV: "test",
-        DATALAYER_SLACK_SIGNING_SECRET: "signing-secret",
+        ...solr,
+        DATALAYER_SOLR_URL: "http://solr.example/api",
+        DATALAYER_SOLR_USERNAME: "solr",
+        DATALAYER_SOLR_PASSWORD: "p",
+        DATALAYER_SLACK_APP_ID: "A1",
+        DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY: "k",
       }),
-    ).toThrow(/DATABASE_URL|DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY/);
+    ).toThrow(/ending in \/solr/);
+    const config = readConfig({
+      ...solr,
+      DATALAYER_SOLR_URL: "http://solr.example/solr",
+      DATALAYER_SOLR_USERNAME: "solr",
+      DATALAYER_SOLR_PASSWORD: "p",
+      DATALAYER_SLACK_APP_ID: "A1",
+      DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY: "k",
+    });
+    expect(config.DATALAYER_SLACK_SOLR_COLLECTION).toBe("slack");
   });
 
   it("keeps one host key for every workspace to development", () => {

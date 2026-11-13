@@ -2,7 +2,6 @@ import { randomBytes } from "node:crypto";
 
 import type { Installation } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
-import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 import { BoltSlackPort } from "../src/bolt.js";
@@ -15,8 +14,9 @@ import {
 import { SecretCipher } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { SlackInstallation } from "../src/domain.js";
 import type { HostInstallations } from "../src/host-installations.js";
-import { PostgresInstallationStore } from "../src/oauth-store.js";
+import { SolrInstallationStore } from "../src/oauth-store.js";
 import { MemorySlackStore } from "../src/store.js";
+import { MapRecords } from "./support/keyed-records.js";
 
 const KEY = { appId: "A1", teamId: "T1" } as const;
 const HOUR = 60 * 60 * 1000;
@@ -240,20 +240,6 @@ describe("Bot token rotation (S-102)", () => {
 });
 
 describe("Bolt's installation row with rotation (S-102)", () => {
-  function database() {
-    let encrypted: unknown;
-    const query = vi.fn(async (sql: string, values?: unknown[]) => {
-      if (sql.includes("INSERT INTO slack_oauth_installations"))
-        encrypted = values?.[3];
-      if (sql.includes("UPDATE slack_oauth_installations"))
-        encrypted = values?.[3];
-      if (sql.includes("SELECT installation"))
-        return { rows: [{ installation: encrypted }] };
-      return { rowCount: 1, rows: [] };
-    });
-    return { pool: { query } as unknown as Pool, query };
-  }
-
   const rotating = (metadata?: string): Installation<"v2", false> => ({
     appId: "A1",
     authVersion: "v2",
@@ -274,7 +260,7 @@ describe("Bolt's installation row with rotation (S-102)", () => {
   });
 
   it("keeps the refresh token and expiry, binds once, and a refresh stored again binds nothing", async () => {
-    const { pool } = database();
+    const pool = new MapRecords();
     const domain = new MemorySlackStore();
     const bind = vi.fn(async () => ({
       hostKey: "dlhk_x",
@@ -284,7 +270,7 @@ describe("Bolt's installation row with rotation (S-102)", () => {
       domain.putInstallation(installation),
     );
     const hosts = { bind, keep } as unknown as HostInstallations;
-    const store = new PostgresInstallationStore(
+    const store = new SolrInstallationStore(
       "A1",
       pool,
       new SecretCipher(randomBytes(32).toString("base64"), 1),
@@ -319,9 +305,9 @@ describe("Bolt's installation row with rotation (S-102)", () => {
   });
 
   it("follows a worker's refresh in Bolt's row", async () => {
-    const { pool } = database();
+    const pool = new MapRecords();
     const domain = new MemorySlackStore();
-    const store = new PostgresInstallationStore(
+    const store = new SolrInstallationStore(
       "A1",
       pool,
       new SecretCipher(randomBytes(32).toString("base64"), 1),

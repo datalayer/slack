@@ -2,7 +2,6 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import type { Installation } from "@slack/bolt";
-import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 import { uninstallSlackWorkspace } from "../src/bolt.js";
@@ -12,8 +11,9 @@ import {
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 import type { SlackInstallation, SlackInstallationKey } from "../src/domain.js";
 import { HostInstallations } from "../src/host-installations.js";
-import { PostgresInstallationStore } from "../src/oauth-store.js";
-import { PostgresSlackStore } from "../src/postgres-store.js";
+import { SolrInstallationStore } from "../src/oauth-store.js";
+import type { SolrRecords } from "../src/solr/records.js";
+import { SolrSlackStore } from "../src/solr-store.js";
 import { MemorySlackStore } from "../src/store.js";
 import { SlackAgentService } from "../src/service.js";
 import {
@@ -25,6 +25,7 @@ import {
   promptOf,
 } from "./support/fakes.js";
 import { CONTRACTS_PATH } from "./support/contracts.js";
+import { MapRecords } from "./support/keyed-records.js";
 
 /** The fixture ai-agents tests its half against: the routes and request shapes. */
 const contracts = JSON.parse(readFileSync(CONTRACTS_PATH, "utf8")) as {
@@ -129,7 +130,7 @@ const active: SlackInstallation = {
 };
 
 function hostsOver(
-  store: MemorySlackStore | PostgresSlackStore,
+  store: MemorySlackStore | SolrSlackStore,
   fetchImplementation: typeof fetch,
 ) {
   return new HostInstallations(
@@ -150,11 +151,9 @@ describe("Bind at install", () => {
       [route("bind")]: bound,
       [route("webhook")]: webhook,
     });
-    const oauth = new PostgresInstallationStore(
+    const oauth = new SolrInstallationStore(
       "A1",
-      {
-        query: vi.fn(async () => ({ rowCount: 1, rows: [] })),
-      } as unknown as Pool,
+      new MapRecords(),
       new SecretCipher(randomBytes(32).toString("base64"), 1),
       store,
       hostsOver(store, fetchImplementation),
@@ -200,20 +199,20 @@ describe("Bind at install", () => {
 
   it("stores nothing when Datalayer refuses the code", async () => {
     const store = new MemorySlackStore();
-    const query = vi.fn(async () => ({ rowCount: 1, rows: [] }));
+    const records = new MapRecords();
     const { fetchImplementation } = wire({
       [route("bind")]: () =>
         Response.json({ detail: "This code binds nothing" }, { status: 404 }),
     });
-    const oauth = new PostgresInstallationStore(
+    const oauth = new SolrInstallationStore(
       "A1",
-      { query } as unknown as Pool,
+      records,
       new SecretCipher(randomBytes(32).toString("base64"), 1),
       store,
       hostsOver(store, fetchImplementation),
     );
     await expect(oauth.storeInstallation(installation)).rejects.toThrow(/404/);
-    expect(query).not.toHaveBeenCalled();
+    expect(records.kept.size).toBe(0);
     await expect(
       store.getInstallation({ appId: "A1", teamId: "T1" }),
     ).resolves.toBeUndefined();
@@ -239,13 +238,9 @@ describe("Bind at install", () => {
   });
 
   it("keeps the host key and the delivery secret encrypted beside the bot token", async () => {
-    let row: unknown[] = [];
-    const query = vi.fn(async (sql: string, values?: unknown[]) => {
-      if (sql.includes("INSERT INTO slack_installations")) row = values ?? [];
-      return { rowCount: 1, rows: [] };
-    });
-    const store = new PostgresSlackStore(
-      { query } as unknown as Pool,
+    const records = new MapRecords();
+    const store = new SolrSlackStore(
+      records as unknown as SolrRecords,
       new SecretCipher(randomBytes(32).toString("base64"), 1),
     );
     await store.putInstallation({
@@ -254,9 +249,14 @@ describe("Bind at install", () => {
       datalayerHostUid: "inst-1",
       deliverySecret: SECRET,
     });
-    expect(JSON.stringify(row)).not.toContain(KEY);
-    expect(JSON.stringify(row)).not.toContain(SECRET);
-    expect(row).toContain("inst-1");
+    const written = JSON.stringify([...records.kept.values()]);
+    expect(written).not.toContain(KEY);
+    expect(written).not.toContain(SECRET);
+    expect(written).toContain("inst-1");
+    await expect(store.getInstallation(active)).resolves.toMatchObject({
+      datalayerHostKey: KEY,
+      deliverySecret: SECRET,
+    });
   });
 
   it("keeps the key and version a webhook registered under Datalayer's own key was answered, beside its secret", async () => {
@@ -300,13 +300,9 @@ describe("Bind at install", () => {
   });
 
   it("writes the key and version in the clear, the secret encrypted, and keeps them with the secret", async () => {
-    const queries: Array<{ sql: string; values: unknown[] }> = [];
-    const query = vi.fn(async (sql: string, values?: unknown[]) => {
-      queries.push({ sql, values: values ?? [] });
-      return { rowCount: 1, rows: [] };
-    });
-    const store = new PostgresSlackStore(
-      { query } as unknown as Pool,
+    const records = new MapRecords();
+    const store = new SolrSlackStore(
+      records as unknown as SolrRecords,
       new SecretCipher(randomBytes(32).toString("base64"), 1),
     );
     await store.putInstallation({
@@ -316,19 +312,22 @@ describe("Bind at install", () => {
       deliverySecret: SECRET,
       deliveryVersion: 2,
     });
-    const [written] = queries;
-    expect(written?.values).toContain("ai-agents-host-deliveries-v1");
-    expect(written?.values).toContain(2);
-    expect(JSON.stringify(written?.values)).not.toContain(SECRET);
-    expect(written?.sql).toMatch(
-      /delivery_key = CASE WHEN EXCLUDED\.delivery_secret IS NULL/,
-    );
-    // Without a secret, nothing of the key is written: the row keeps its own.
+    const written = JSON.stringify([...records.kept.values()]);
+    expect(written).toContain("ai-agents-host-deliveries-v1");
+    expect(written).not.toContain(SECRET);
+    // Without a secret, nothing of the key is written: the record keeps its own.
     await store.putInstallation({
       ...active,
       deliveryKey: "ai-agents-host-deliveries-v9",
     });
-    expect(queries[1]?.values).not.toContain("ai-agents-host-deliveries-v9");
+    expect(JSON.stringify([...records.kept.values()])).not.toContain(
+      "ai-agents-host-deliveries-v9",
+    );
+    await expect(store.getInstallation(active)).resolves.toMatchObject({
+      deliveryKey: "ai-agents-host-deliveries-v1",
+      deliverySecret: SECRET,
+      deliveryVersion: 2,
+    });
   });
 });
 

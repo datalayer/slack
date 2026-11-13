@@ -1,19 +1,20 @@
 import { randomBytes } from "node:crypto";
 
-import type { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
-  DeadLetters,
   payloadHash,
-  PostgresWorkQueue,
   quotaEntries,
   quotaWords,
   resetOf,
   SecretCipher,
   windowOf,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import { PostgresSlackStore } from "../src/postgres-store.js";
+import { textOf } from "../src/solr/client.js";
+import { SolrDeadLetters } from "../src/solr/dead-letters.js";
+import { SolrWorkQueue } from "../src/solr/queue.js";
+import { documentOf, SolrRecords } from "../src/solr/records.js";
+import { SolrSlackStore } from "../src/solr-store.js";
 import { SlackAgentService } from "../src/service.js";
 import { MemorySlackStore, type SlackStore } from "../src/store.js";
 import {
@@ -25,7 +26,7 @@ import {
   keptLogger,
   promptOf,
 } from "./support/fakes.js";
-import { testDatabase } from "./support/postgres.js";
+import { emptied, solrTestUrl, testCollection } from "./support/solr.js";
 
 const limits = { application: 5, installation: 3, organization: 5, user: 2 };
 const turn = {
@@ -121,55 +122,67 @@ describe("quotas before costly work (S-404)", () => {
   });
 });
 
-const DATABASE_URL = process.env.DATALAYER_SLACK_TEST_DATABASE_URL;
-
-describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
-  let database: Pool;
+describe.runIf(Boolean(solrTestUrl))("on Solr", () => {
+  let records: SolrRecords;
   beforeAll(async () => {
-    database = await testDatabase(DATABASE_URL ?? "", "slack_test_operations");
-  });
-  afterAll(async () => {
-    await database?.end();
-  });
+    records = await testCollection("test_slack_operations");
+  }, 60_000);
+  const cipher = new SecretCipher(randomBytes(32).toString("base64"), 1);
+
+  /** A job as the queue keeps it, written straight in. */
+  async function job(payload: unknown, fields: Record<string, unknown>) {
+    const doc = documentOf("job", null, {
+      attempts_i: 0,
+      available_dt: new Date(),
+      kind_s: "prompt",
+      payload_stored: JSON.stringify(payload),
+      state_s: "ready",
+      ...fields,
+    });
+    await records.client.add([doc]);
+    return textOf(doc.uid);
+  }
 
   it("takes quotas atomically, the same cases", async () => {
-    await quotaCases(
-      new PostgresSlackStore(
-        database,
-        new SecretCipher(randomBytes(32).toString("base64"), 1),
-      ),
-    );
-  });
+    await emptied(records);
+    await quotaCases(new SolrSlackStore(records, cipher));
+  }, 60_000);
 
-  it("takes quotas once under concurrency", async () => {
-    const store = new PostgresSlackStore(
-      database,
-      new SecretCipher(randomBytes(32).toString("base64"), 1),
-    );
+  it("takes quotas once under concurrency, from two processes", async () => {
+    await emptied(records);
+    const other = new SolrRecords(records.client, {
+      leaseMs: 5_000,
+      stripes: records.stripes,
+    });
+    const stores = [
+      new SolrSlackStore(records, cipher),
+      new SolrSlackStore(other, cipher),
+    ];
     const entries = entriesOf(
       { ...limits, installation: 100, user: 3 },
       { ...turn, externalUserId: "Ucc" },
     );
     const taken = await Promise.all(
-      Array.from({ length: 8 }, () =>
-        store.takeQuota(entries, "2026-10-16T10"),
+      Array.from({ length: 8 }, (_, index) =>
+        stores[index % 2]!.takeQuota(entries, "2026-10-16T10"),
       ),
     );
     expect(taken.filter((one) => one.ok)).toHaveLength(3);
-  });
+  }, 60_000);
 
   it("lists dead letters by metadata and hash, replays once, and reads a payload only for a reason, audited", async () => {
-    const queue = new PostgresWorkQueue<unknown>(database, "slack");
+    await emptied(records);
+    const queue = new SolrWorkQueue<unknown>(records);
     const payload = {
       prompt: { text: "my salary is 100k", token: "xoxb-123456789012-secret" }, // gitleaks:allow — a fake token the redaction test must strip
     };
-    const inserted = await database.query<{ id: string }>(
-      "INSERT INTO slack_jobs (payload, state, attempts, last_error) VALUES ($1, 'dead', 5, $2) RETURNING id::text",
-      [payload, "refused Bearer abcdefghijklmnop"],
-    );
-    const id = inserted.rows[0]!.id;
+    const id = await job(payload, {
+      attempts_i: 5,
+      last_error_stored: "refused Bearer abcdefghijklmnop",
+      state_s: "dead",
+    });
     const { lines, logger } = keptLogger();
-    const letters = new DeadLetters(database, queue, logger);
+    const letters = new SolrDeadLetters(queue, "slack", logger);
     const listed = await letters.list();
     expect(listed).toEqual([
       expect.objectContaining({
@@ -193,12 +206,8 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
     expect(read.prompt.token).toBe("[redacted]");
     // The words are what the privileged read is for.
     expect(read.prompt.text).toBe("my salary is 100k");
-    const access = await database.query(
-      "SELECT operator, reason FROM slack_payload_access WHERE job_id = $1",
-      [id],
-    );
-    expect(access.rows).toEqual([
-      { operator: "ops", reason: "a customer asked why it failed" },
+    expect(await records.find("payload_access", { job_uid_s: id })).toEqual([
+      { jobUid: id, operator: "ops", reason: "a customer asked why it failed" },
     ]);
     expect(lines.some((line) => line.includes('"payload.read"'))).toBe(true);
 
@@ -206,35 +215,22 @@ describe.runIf(Boolean(DATABASE_URL))("on Postgres", () => {
     await expect(letters.replay(id, "ops")).resolves.toBe(false);
     expect(await letters.list()).toEqual([]);
     // Every replay is kept with who asked, refused or not.
-    const replays = await database.query(
-      "SELECT operator, replayed FROM slack_job_replays WHERE job_id = $1 ORDER BY id",
-      [id],
-    );
-    expect(replays.rows).toEqual([
-      { operator: "ops", replayed: true },
-      { operator: "ops", replayed: false },
+    expect(await records.find("job_replay", { job_uid_s: id })).toEqual([
+      { jobUid: id, operator: "ops", replayed: true },
+      { jobUid: id, operator: "ops", replayed: false },
     ]);
     await expect(letters.replay(id, " ")).rejects.toThrow(/Name who replays/);
-  });
+  }, 60_000);
 
   it("reads a dead job's payload only: a live job or an unknown id is refused, and no read is recorded (S-405)", async () => {
-    const queue = new PostgresWorkQueue<unknown>(database, "slack");
-    const live = await database.query<{ id: string }>(
-      "INSERT INTO slack_jobs (payload, state, attempts) VALUES ($1, 'ready', 0) RETURNING id::text",
-      [{ prompt: { text: "a live question" } }],
-    );
-    const letters = new DeadLetters(database, queue, keptLogger().logger);
-    const reads = async () =>
-      (await database.query("SELECT 1 FROM slack_payload_access")).rowCount;
-    const before = await reads();
-    for (const id of [
-      live.rows[0]!.id,
-      "999999999",
-      "1; DROP TABLE slack_jobs",
-    ])
+    await emptied(records);
+    const queue = new SolrWorkQueue<unknown>(records);
+    const live = await job({ prompt: { text: "a live question" } }, {});
+    const letters = new SolrDeadLetters(queue, "slack", keptLogger().logger);
+    for (const id of [live, "01ZZZZZZZZZZZZZZZZZZZZZZZZ", "*:*"])
       await expect(
         letters.payload(id, "ops", "a customer asked why it failed"),
       ).rejects.toThrow(/not a dead job/);
-    expect(await reads()).toBe(before);
-  });
+    expect(await records.count("payload_access")).toBe(0);
+  }, 60_000);
 });

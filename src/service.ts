@@ -34,7 +34,7 @@ export const TURN_STALE_AFTER_MS = 15 * 60 * 1000;
 
 /**
  * A running turn of the same event is resumed only once it is older than the
- * queue's lease (`postgres-queue.ts`, five minutes): before that, its worker
+ * queue's lease (`solr/queue.ts`, five minutes): before that, its worker
  * may still be alive, and the job is a duplicate in flight.
  */
 export const RESUME_AFTER_MS = 5 * 60 * 1000;

@@ -12,17 +12,6 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16.4-alpine
-        env:
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: slack
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      DATALAYER_SLACK_TEST_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/slack
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,7 +36,9 @@ jobs:
         run: npm run check:installed
       - name: Manifest drift
         run: npm run manifest:check
-      - name: Tests (memory and Postgres stores)
+      # The Solr store's cases run where a SolrCloud with the platform's
+      # configset is reachable (DATALAYER_SOLR_TEST_URL): not here.
+      - name: Tests (memory store)
         run: npm test
       - name: Bundle
         run: npm run bundle

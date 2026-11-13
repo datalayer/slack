@@ -25,7 +25,6 @@ COPY package.json ./
 RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund --no-package-lock \
   && npm cache clean --force
 COPY --from=build /app/dist ./dist
-COPY migrations ./migrations
 COPY manifests ./manifests
 USER node
 EXPOSE 3000

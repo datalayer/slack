@@ -24,7 +24,7 @@ The repository currently provides the executable Phase 0/early Phase 2 foundatio
 - encrypted, durable Slack OAuth installations with workspace-specific token routing;
 - **bind at install**: the Ship card's one-use `datalayer_bind` code rides in a signed, one-use OAuth `state`; the callback binds the workspace at `POST /api/ai-agents/v1/apps/hosts/bind` and keeps the answered host key encrypted beside the bot token; every Datalayer call of that workspace uses its own key (`src/oauth-state.ts`, `src/host-installations.ts`);
 - **account linking**: App Home's _Connect your Datalayer account_ asks a one-use link code (`POST …/self/link-codes`) and opens Datalayer's confirm page (`/hosts/link?code=…`), where the person, signed in, confirms; whether someone is linked is always Datalayer's answer (`GET …/self/links/{user}`); a connected person's Home suggests up to five of the default application's starters (_Try asking …_), read as them from the runtime's `GET /api/v1/apps/current` (agent-runtimes 4e27cf3d and later) after the host credential exchange, and says so when they cannot be read;
-- **deliveries**: a signed webhook (`POST /datalayer/deliveries/{host}`, registered with `PUT …/self/delivery`, verified with the installation's own secret over `<timestamp>.<body>` within five minutes) and an outbox poller (`GET …/self/deliveries` + ack) feed the queue; each delivery is handled once (`src/deliveries.ts`). The secret is kept with the key Datalayer derived it under and the registration's version (migration `012`), and a push must name that key (`X-Datalayer-Delivery-Key`); a secret kept without one was derived from the platform's shared secret and is accepted until 31 December 2026, 00:00 UTC only. At start and every hour the worker asks Datalayer whether each webhook must be registered again (`GET …/self` answers `delivery.renew`), registers it again at the same address and keeps the new secret, key and version where the old ones were (the kit's `DeliveryRenewal`);
+- **deliveries**: a signed webhook (`POST /datalayer/deliveries/{host}`, registered with `PUT …/self/delivery`, verified with the installation's own secret over `<timestamp>.<body>` within five minutes) and an outbox poller (`GET …/self/deliveries` + ack) feed the queue; each delivery is handled once (`src/deliveries.ts`). The secret is kept with the key Datalayer derived it under and the registration's version, and a push must name that key (`X-Datalayer-Delivery-Key`); a secret kept without one was derived from the platform's shared secret and is accepted until 31 December 2026, 00:00 UTC only. At start and every hour the worker asks Datalayer whether each webhook must be registered again (`GET …/self` answers `delivery.renew`), registers it again at the same address and keeps the new secret, key and version where the old ones were (the kit's `DeliveryRenewal`);
 - **approval cards**: `approval.requested` becomes a Block Kit card built from `GET /tool-approvals/{id}/presentation`, every value whole (a long value continues in the next block, never cut); _Approve_ and _Decline_ only when the server says a host may decide and it fits Slack, each opening a confirmation modal; the decision is `POST /apps/hosts/approvals/{id}/decision` with the digest shown, as the person who pressed; otherwise only _Review in Datalayer_. A channel session's card goes privately to its person, the thread showing only _Waiting for …'s decision_; `approval.decided` updates every card, without buttons; `turn.completed` finishes a thread's status that its stream left waiting (`src/approval-card.ts`);
 - uninstall cleanup: `app_uninstalled` and `tokens_revoked` end the installation at Datalayer (`DELETE /api/ai-agents/v1/apps/hosts/self`), then remove its key, credentials, bindings and cards; late queued work and deliveries are dropped;
 - CI checks that prevent Jupyter, JupyterLab, Lumino, React DOM and Datalayer Jupyter imports.
@@ -34,8 +34,8 @@ Added on 16 October 2026 (round 1):
 - **ingress**: each signed event is normalized without a network call (`src/ingress.ts`) and persisted once by its event id, with the job, in one transaction. It is acknowledged only after that (`processBeforeResponse`). Bolt checks the signature over the raw body. A timestamp more than five minutes away, in the past or the future, is refused in front of Bolt (`src/health.ts`). Bot, self, unsupported-subtype and channel (non-mention) messages are ignored.
 - **the turn worker** (`src/service.ts`, `src/routing.ts`, `src/worker.ts`):
   - It resolves installation → shared channel (refused) → linked person → application. The application is the thread's own, else an explicit choice, else the channel's binding, else the workspace default. It must be allowed here and in this kind of conversation. Every refusal is private (ephemeral in a channel) and starts no run.
-  - One turn runs at a time per thread. A second prompt is refused privately while one runs. On Postgres the thread is locked for the claim even before its first turn row exists (a transaction-scoped advisory lock).
-  - A long turn is not mistaken for a crashed one: its worker writes a heartbeat every minute (migration `006`), and its queue job renews its five-minute lease every minute. A redelivery resumes, and a new prompt takes over, only once the heartbeat stops.
+  - One turn runs at a time per thread. A second prompt is refused privately while one runs. In Solr the claim runs under the thread's lock even before its first turn exists (`src/solr/records.ts`).
+  - A long turn is not mistaken for a crashed one: its worker writes a heartbeat every minute, and its queue job renews its five-minute lease every minute. A redelivery resumes, and a new prompt takes over, only once the heartbeat stops.
   - _Stop_ names the run it stops.
   - After a crash, a redelivery resumes the same message, and Datalayer replays the turn rather than running it again.
   - _Use another application_ and _Start over_ archive the thread's binding and open a new session. Only the person who opened it can use them.
@@ -46,12 +46,12 @@ Added on 16 October 2026 (round 1):
   - A turn's calls are spaced per method and channel. Every Slack call, cards and private words included, waits Slack's `Retry-After` on a 429: the Web client rejects rate-limited calls (`rejectRateLimitedCalls`) instead of pausing its own queue.
   - Tables are shown as blocks, previewed when large. Citations are safe HTTPS links.
   - A plain-text fallback is always present, and Slack's block limits are kept.
-- **records** (migration `003`): allowances, channel bindings, deliveries, the turn lock, held prompts, archived bindings, and the next application.
+- **records** (the `slack` Solr collection, see _Durable storage internals_): installations, links, allowances, channel bindings, deliveries, the turn lock, held prompts, archived bindings, and the next application.
 - **operations**:
   - `/healthz` and `/readyz` (the store and the queue only);
   - redacted JSON logs with pseudonymous ids, and identity audit events (`src/observability.ts`);
-  - one esbuild bundle (`scripts/bundle.ts`: `dist/index.js`, `dist/migrate.js`, `dist/dead-letters.js`) gated on its module graph (`npm run check:imports`) and, in CI, on the installed graph of its externals (`npm run check:installed`);
-  - a two-stage `Dockerfile` (node 20 slim, non-root): the build stage fetches the pinned agent-runtimes release's `lib/portable` only (`config.agentRuntimesVersion`, `scripts/fetch-agent-runtimes.mjs`) and bundles; the runtime stage installs the externals only (`--omit=dev`: agent-runtimes is an optional peer, which npm never installs, while the peers of the dependencies — `undici` for Bolt — are kept); `scripts/migrate.ts` applies the shared host tables, then `migrations/`;
+  - one esbuild bundle (`scripts/bundle.ts`: `dist/index.js`, `dist/dead-letters.js`) gated on its module graph (`npm run check:imports`) and, in CI, on the installed graph of its externals (`npm run check:installed`);
+  - a two-stage `Dockerfile` (node 20 slim, non-root): the build stage fetches the pinned agent-runtimes release's `lib/portable` only (`config.agentRuntimesVersion`, `scripts/fetch-agent-runtimes.mjs`) and bundles; the runtime stage installs the externals only (`--omit=dev`: agent-runtimes is an optional peer, which npm never installs, while the peers of the dependencies — `undici` for Bolt — are kept);
   - CI (`.github/workflows/ci.yml`).
 - **documents**: `docs/inventory.md` (S-001), `docs/adr/` (S-002) and `docs/threat-model.md` (S-003, draft).
 
@@ -90,7 +90,7 @@ Because channel history is not read, an edit to a channel message is never deliv
 - npm 10 or newer
 - A Slack development sandbox
 - A Datalayer development account and deployed LOOP application
-- PostgreSQL only for HTTP/OAuth or production setup
+- A SolrCloud with the platform's configset only for HTTP/OAuth or production setup
 
 ## What can be tested today
 
@@ -155,9 +155,9 @@ This is how `Datalayer Dev` (`A0CAMVC1E1E`) was made on 16 October 2026, and how
 ### Production (HTTP, on r1)
 
 1. **The public address:** `slack.datalayer.run`, a DNS record pointing to r1's Traefik load balancer (the manifest's origin, `scripts/manifest.ts`). The chart's ingress and its cert-manager certificate (letsencrypt, HTTP-01) exist as soon as `p reup datalayer-slack` has run, the service on or off; the certificate is issued once the name resolves.
-2. **The chart's Secret and Postgres** exist on r1 too (`datalayer-slack-env`, its state secret and token encryption key generated once and kept, and `datalayer-slack-postgresql`).
+2. **The chart's Secret** exists on r1 too (`datalayer-slack-env`, its state secret and token encryption key generated once and kept). The records are kept in r1's SolrCloud, collection `slack` (made by the plane's `solr-init`, AI set).
 3. **Create the app and deploy it:** `make slack-app ENV=production DEPLOY=1`, once the certificate is ready (Slack calls the events URL to verify it). Its id, client id, client secret and signing secret, and its public origin, go to `~/.datalayer/datalayerrc-r1` as `DATALAYER_SLACK_APP_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_SIGNING_SECRET` and `_PUBLIC_URL`. Nothing secret is printed, and no Secret is written by hand: up.sh gives these values to the chart on every reup, which writes them into `datalayer-slack-env`.
-4. **(you) Turn the service on:** `DATALAYER_SLACK_ENABLED=true` in `~/.datalayer/datalayerrc-r1`, then `p reup datalayer-slack`; up.sh refuses while one of the app's values is missing. The migrate job runs first, then the ingress and worker roles start. Slack verifies the events URL once the service answers.
+4. **(you) Turn the service on:** `DATALAYER_SLACK_ENABLED=true` in `~/.datalayer/datalayerrc-r1`, then `p reup datalayer-slack`; up.sh refuses while one of the app's values is missing. The ingress and worker roles start; the first makes the collection's lock documents. Slack verifies the events URL once the service answers.
 5. **(you) Install it** to a workspace from the Studio: an application → **Ship** → **Slack** card → **Install @Datalayer**, which binds the installation to that application.
 
 Staging is the same with `ENV=staging` and `slack-staging.datalayer.run`, should one be wanted: one service runs on r1, as the app whose values the r1 rc holds.
@@ -298,7 +298,7 @@ If the deployment is not kept always on, or the target Datalayer environment doe
 
 ### 6. Fill `.env`
 
-Set these values and leave the PostgreSQL and OAuth values blank:
+Set these values and leave the Solr and OAuth values blank:
 
 ```dotenv
 NODE_ENV=development
@@ -404,18 +404,16 @@ sed -i '/^DATALAYER_HOST_KEY=/d' .env
 
 ## HTTP and OAuth development
 
-Use this path to test public HTTPS ingress, multi-workspace installation, encrypted credentials, token rotation and uninstall cleanup. It requires a public HTTPS tunnel and PostgreSQL.
+Use this path to test public HTTPS ingress, multi-workspace installation, encrypted credentials, token rotation and uninstall cleanup. It requires a public HTTPS tunnel and a SolrCloud with the platform's configset.
 
-### 1. Start PostgreSQL
+### 1. Start Solr
 
-Use an existing development PostgreSQL instance, or start an isolated local container:
+Use a development SolrCloud, or start an isolated local one with the platform's configset (`k8s/services/plane/etc/dockerfiles/datalayer-solr/config` of the services repository) and make the collection:
 
 ```bash
-docker run --name datalayer-slack-postgres \
-  -e POSTGRES_PASSWORD=datalayer-slack-local \
-  -e POSTGRES_DB=datalayer_slack \
-  -p 127.0.0.1:5432:5432 \
-  -d postgres:16
+docker run --name datalayer-slack-solr -p 127.0.0.1:8983:8983 \
+  -v "$PWD/config:/opt/solr/dlconfig:ro" -d solr:9.10.0 solr-foreground -c
+docker exec datalayer-slack-solr solr create -c slack -d /opt/solr/dlconfig -n slack-conf
 ```
 
 This example password is only for a database bound to your development machine. Use a secret manager and TLS for any shared environment.
@@ -455,8 +453,10 @@ Use the first as `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY` and the second as `DATAL
 NODE_ENV=development
 PORT=3000
 DATALAYER_SLACK_TRANSPORT=http
-DATALAYER_SLACK_STORE=postgres
-DATABASE_URL=postgresql://postgres:datalayer-slack-local@127.0.0.1:5432/datalayer_slack
+DATALAYER_SLACK_STORE=solr
+DATALAYER_SOLR_URL=http://127.0.0.1:8983/solr
+DATALAYER_SOLR_USERNAME=solr
+DATALAYER_SOLR_PASSWORD=any-for-a-local-solr-without-auth
 
 DATALAYER_SLACK_APP_ID=A0123456789
 DATALAYER_SLACK_SIGNING_SECRET=...
@@ -473,14 +473,13 @@ DATALAYER_WEB_URL=https://datalayer.ai
 
 The static `DATALAYER_SLACK_BOT_TOKEN`, `DATALAYER_SLACK_APP_TOKEN`, `DATALAYER_SLACK_TEAM_ID` and `DATALAYER_SLACK_BOT_USER_ID` values are not used by the HTTP OAuth path.
 
-### 5. Migrate, run and install
+### 5. Run and install
 
 ```bash
-npm run migrate
 npm run dev:http
 ```
 
-Install from Datalayer: on the application's Ship tab, the Slack card's _Install @Datalayer_ sets up a host installation at ai-agents and opens `https://example.ngrok-free.app/slack/install?datalayer_bind=dlhc_…` (for a local landing, set its `SLACK_APP_URL` to your tunnel origin). This service puts the code in a signed, one-use OAuth `state` and sends you to Slack; at the callback it binds the workspace (`POST /api/ai-agents/v1/apps/hosts/bind`), stores the installation, the host key and, when the delivery address registers, its signing secret, all encrypted in PostgreSQL, and makes the installation's default deployment the workspace's default. An expired or spent code stores nothing: the page says to install again from the Ship tab. Reinstalling without a code (a scope change) keeps the key the workspace had.
+Install from Datalayer: on the application's Ship tab, the Slack card's _Install @Datalayer_ sets up a host installation at ai-agents and opens `https://example.ngrok-free.app/slack/install?datalayer_bind=dlhc_…` (for a local landing, set its `SLACK_APP_URL` to your tunnel origin). This service puts the code in a signed, one-use OAuth `state` and sends you to Slack; at the callback it binds the workspace (`POST /api/ai-agents/v1/apps/hosts/bind`), stores the installation, the host key and, when the delivery address registers, its signing secret, all encrypted in Solr, and makes the installation's default deployment the workspace's default. An expired or spent code stores nothing: the page says to install again from the Ship tab. Reinstalling without a code (a scope change) keeps the key the workspace had.
 
 In development, `/slack/install` without a code still runs Bolt's plain install (unbound: App Home says the workspace is not connected). Outside development it is refused with a page pointing to the Ship tab.
 
@@ -494,40 +493,42 @@ Datalayer pushes approvals and finished turns to `<origin>/datalayer/deliveries/
 
 Do not deploy the development shortcut. A production process must set:
 
-- `NODE_ENV=production`, `DATALAYER_SLACK_TRANSPORT=http` and `DATALAYER_SLACK_STORE=postgres`;
-- `DATABASE_URL` for a backed-up, TLS-protected PostgreSQL database;
+- `NODE_ENV=production`, `DATALAYER_SLACK_TRANSPORT=http` and `DATALAYER_SLACK_STORE=solr`;
+- `DATALAYER_SOLR_URL`, `DATALAYER_SOLR_USERNAME` and `DATALAYER_SOLR_PASSWORD` for the cluster's backed-up SolrCloud, whose collection `slack` exists;
 - `DATALAYER_SLACK_APP_ID`, `DATALAYER_SLACK_SIGNING_SECRET`, `DATALAYER_SLACK_CLIENT_ID`, `DATALAYER_SLACK_CLIENT_SECRET`, `DATALAYER_SLACK_STATE_SECRET` and the exact `DATALAYER_SLACK_REDIRECT_URI`;
 - `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY` from a secret manager and its explicit key version;
 - production `DATALAYER_API_URL` and `DATALAYER_WEB_URL` values;
 - the URLs from [`manifests/production.yaml`](manifests/production.yaml), reachable over HTTPS.
 
-Run `npm run migrate` once per release before starting `npm run build && npm start` (it applies every file of `migrations/` in order; each is idempotent). Production configuration rejects memory storage, any `DATALAYER_DEV_HOST_TOKEN` and any shared `DATALAYER_HOST_KEY`: each installation keeps its own key, bound at install. Do not expose production until ai-agents' host contracts are deployed and the operational health endpoints and public policy/support flows are implemented.
+Start with `npm run build && npm start`: there is no migration, a record is read as it was written, and the collection's lock documents are made at first start. Production configuration rejects memory storage, any `DATALAYER_DEV_HOST_TOKEN` and any shared `DATALAYER_HOST_KEY`: each installation keeps its own key, bound at install. Do not expose production until ai-agents' host contracts are deployed and the operational health endpoints and public policy/support flows are implemented.
 
 ## Configuration reference
 
-| Variable                                                      | Required when                    | Purpose                                                      |
-| ------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------ |
-| `PORT`                                                        | Always; defaults to `3000`       | Bolt HTTP listener or local Socket Mode process port         |
-| `DATALAYER_SLACK_TRANSPORT`                                   | Always                           | `socket` locally or `http` for public ingress                |
-| `DATALAYER_SLACK_STORE`                                       | Always                           | `memory` for local work or `postgres` for durable/OAuth work |
-| `DATABASE_URL`                                                | PostgreSQL store                 | PostgreSQL connection string                                 |
-| `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY`                        | PostgreSQL store                 | Base64-encoded 32-byte AES key                               |
-| `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION`                | PostgreSQL store                 | Positive key version; defaults to `1`                        |
-| `DATALAYER_SLACK_APP_TOKEN`                                   | Socket Mode                      | App-level `xapp-` token with `connections:write`             |
-| `DATALAYER_SLACK_BOT_TOKEN`                                   | Static development install       | Workspace bot `xoxb-` token                                  |
-| `DATALAYER_SLACK_APP_ID`                                      | Seeded development or PostgreSQL | Slack application ID                                         |
-| `DATALAYER_SLACK_TEAM_ID` / `DATALAYER_SLACK_BOT_USER_ID`     | Seeded Socket Mode development   | Workspace and installed bot user identifiers                 |
-| `DATALAYER_SLACK_SIGNING_SECRET`                              | HTTP                             | Verifies signed Slack requests                               |
-| `DATALAYER_SLACK_CLIENT_ID` / `DATALAYER_SLACK_CLIENT_SECRET` | OAuth; required in production    | Slack OAuth application credentials                          |
-| `DATALAYER_SLACK_STATE_SECRET`                                | OAuth; required in production    | At least 32 characters for OAuth state signing               |
-| `DATALAYER_SLACK_REDIRECT_URI`                                | OAuth; required in production    | Exact public OAuth callback URL                              |
-| `DATALAYER_API_URL`                                           | Always                           | Datalayer host-contract origin                               |
-| `DATALAYER_WEB_URL`                                           | Always                           | Base URL used for docs and session links                     |
-| `DATALAYER_DEFAULT_APP_ID`                                    | Seeded development               | Deployment uid selected for prompts                          |
-| `DATALAYER_HOST_KEY`                                          | Development only                 | One host key for workspaces installed without OAuth          |
-| `DATALAYER_SLACK_PUBLIC_URL`                                  | Optional                         | Public HTTPS origin Datalayer pushes deliveries to           |
-| `DATALAYER_DELIVERY_POLL_SECONDS`                             | Optional; defaults to `30`       | How often the outbox is read; `0` never                      |
-| `DATALAYER_DEV_*`                                             | Socket Mode development only     | Temporary principal/link/token bootstrap                     |
+| Variable                                                      | Required when                   | Purpose                                                  |
+| ------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------- |
+| `PORT`                                                        | Always; defaults to `3000`      | Bolt HTTP listener or local Socket Mode process port     |
+| `DATALAYER_SLACK_TRANSPORT`                                   | Always                          | `socket` locally or `http` for public ingress            |
+| `DATALAYER_SLACK_STORE`                                       | Always                          | `memory` for local work or `solr` for durable/OAuth work |
+| `DATALAYER_SOLR_URL`                                          | Solr store                      | Solr's base URL, ending in `/solr`                       |
+| `DATALAYER_SOLR_USERNAME` / `DATALAYER_SOLR_PASSWORD`         | Solr store                      | The platform's Solr user                                 |
+| `DATALAYER_SLACK_SOLR_COLLECTION`                             | Solr store; defaults to `slack` | The service's collection                                 |
+| `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY`                        | Solr store                      | Base64-encoded 32-byte AES key                           |
+| `DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION`                | Solr store                      | Positive key version; defaults to `1`                    |
+| `DATALAYER_SLACK_APP_TOKEN`                                   | Socket Mode                     | App-level `xapp-` token with `connections:write`         |
+| `DATALAYER_SLACK_BOT_TOKEN`                                   | Static development install      | Workspace bot `xoxb-` token                              |
+| `DATALAYER_SLACK_APP_ID`                                      | Seeded development or Solr      | Slack application ID                                     |
+| `DATALAYER_SLACK_TEAM_ID` / `DATALAYER_SLACK_BOT_USER_ID`     | Seeded Socket Mode development  | Workspace and installed bot user identifiers             |
+| `DATALAYER_SLACK_SIGNING_SECRET`                              | HTTP                            | Verifies signed Slack requests                           |
+| `DATALAYER_SLACK_CLIENT_ID` / `DATALAYER_SLACK_CLIENT_SECRET` | OAuth; required in production   | Slack OAuth application credentials                      |
+| `DATALAYER_SLACK_STATE_SECRET`                                | OAuth; required in production   | At least 32 characters for OAuth state signing           |
+| `DATALAYER_SLACK_REDIRECT_URI`                                | OAuth; required in production   | Exact public OAuth callback URL                          |
+| `DATALAYER_API_URL`                                           | Always                          | Datalayer host-contract origin                           |
+| `DATALAYER_WEB_URL`                                           | Always                          | Base URL used for docs and session links                 |
+| `DATALAYER_DEFAULT_APP_ID`                                    | Seeded development              | Deployment uid selected for prompts                      |
+| `DATALAYER_HOST_KEY`                                          | Development only                | One host key for workspaces installed without OAuth      |
+| `DATALAYER_SLACK_PUBLIC_URL`                                  | Optional                        | Public HTTPS origin Datalayer pushes deliveries to       |
+| `DATALAYER_DELIVERY_POLL_SECONDS`                             | Optional; defaults to `30`      | How often the outbox is read; `0` never                  |
+| `DATALAYER_DEV_*`                                             | Socket Mode development only    | Temporary principal/link/token bootstrap                 |
 
 ## Troubleshooting
 
@@ -544,86 +545,35 @@ Run `npm run migrate` once per release before starting `npm run build && npm sta
 | `_Working…_` never becomes an answer            | Inspect the terminal. Confirm the host key or development token, the deployment uid, that it is kept always on and that its runtime is on the `DATALAYER_API_URL` origin.                                                                                 |
 | HTTP requests are rejected                      | Confirm the tunnel URL, `DATALAYER_SLACK_SIGNING_SECRET`, system clock and Slack Request URLs.                                                                                                                                                            |
 | OAuth callback fails                            | The Slack redirect URL and `DATALAYER_SLACK_REDIRECT_URI` must match exactly, including path and HTTPS origin.                                                                                                                                            |
-| PostgreSQL startup fails                        | Check `DATABASE_URL`, run `npm run migrate`, and verify the database is reachable.                                                                                                                                                                        |
+| Solr startup fails                              | Check `DATALAYER_SOLR_URL` and the Solr user, and that the collection `slack` exists (`/readyz` answers `solr`).                                                                                                                                          |
 
 ## Durable storage internals
 
-Production uses PostgreSQL for installations, linked identities, application defaults, thread/session bindings, event claims and durable worker jobs. Configure:
+Production keeps installations, linked identities, application defaults, thread/session bindings, event claims and the durable worker jobs in the cluster's SolrCloud, in the collection `slack` (the platform's configset, made by the plane's `solr-init`; backed up with the AI collections). Configure:
 
 ```text
-DATALAYER_SLACK_STORE=postgres
-DATABASE_URL=postgresql://...
+DATALAYER_SLACK_STORE=solr
+DATALAYER_SOLR_URL=http://solr-datalayer-solrcloud-common.datalayer-solr.svc.cluster.local/solr
+DATALAYER_SOLR_USERNAME=…
+DATALAYER_SOLR_PASSWORD=…
 DATALAYER_SLACK_APP_ID=A…
 DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY=<base64-encoded 32-byte key>
 DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION=1
 ```
 
-Staging and production manifests turn on token rotation: Slack's bot token then lives twelve hours. The worker refreshes it before any post when it expires within two hours (`src/bot-tokens.ts`, with `DATALAYER_SLACK_CLIENT_ID` and `DATALAYER_SLACK_CLIENT_SECRET`), so answers, deliveries and approval cards keep working after a quiet spell with no inbound event. The refresh token is kept encrypted beside the bot token (migration `005`).
+Each object is one document (`src/solr-store.ts`, `src/solr/records.ts`): `type_s` its kind (`installation`, `oauth_installation`, `user_link`, `thread`, `thread_history`, `turn`, `finished_event`, `approval_card`, `app_default`, `allowances`, `channel_bindings`, `event_policy`, `delivery`, `held_prompt`, `next_application`, `custom_app`, `claim`, `job`, `usage`, `job_replay`, `payload_access`, `lock`), `uid` a ULID minted by the service, `id` made by Solr, `key_s` its natural key, `installation_s` its workspace (removing a workspace removes every record of it), the object itself in `record_stored`, and the fields searched on as dynamic fields. Every write commits softly, so the next read sees it.
+
+Solr's only unique field is `id`, which Solr makes, so a natural key's uniqueness is the service's: every write of a keyed record runs under a lock on its key, one of 32 lock documents taken and given back with optimistic concurrency on their `_version_` and held for a fifteen-second lease. A create-if-absent (an event claimed once, a thread's first turn, a quota count) is then as safe as it was in a transaction, provided one holder's work fits in its lease (a few requests).
+
+Staging and production manifests turn on token rotation: Slack's bot token then lives twelve hours. The worker refreshes it before any post when it expires within two hours (`src/bot-tokens.ts`, with `DATALAYER_SLACK_CLIENT_ID` and `DATALAYER_SLACK_CLIENT_SECRET`), so answers, deliveries and approval cards keep working after a quiet spell with no inbound event. The refresh token is kept encrypted beside the bot token.
 
 Create a key with `openssl rand -base64 32` and keep it in the platform secret manager. The key version is stored with every ciphertext so rotation can be introduced without ambiguous decryptions. Slack tokens are encrypted with AES-256-GCM and bound to their installation key as authenticated data.
 
-Apply the idempotent schema migration before starting a release:
+The queue (`src/solr/queue.ts`) claims a job by a conditional write on its `_version_`, so several workers never take the same job. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes (a job being worked renews its lease every minute). An inbound event's claim and its job are written under the claim's lock, the job first: a failure between the two can enqueue a job twice (the turn's own claim answers the second), never lose one.
 
-```bash
-npm run migrate
-```
+Dead jobs are handled with `DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list | replay <id> | payload <id> <reason>`, in a service pod (it reads the service's `DATALAYER_SOLR_*`): `kubectl exec -n datalayer-api deploy/datalayer-slack-worker -- env DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list`. The key is checked at IAM (`GET /api/iam/v1/whoami` at `DATALAYER_IAM_URL`, prod1 by default): the operator is the person it is, and only with the `platform_admin` role; their uid is what every replay and payload read keeps. A job's id is its uid. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept (`job_replay`) with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept (`payload_access`), and its credentials are redacted. Neither the container's user nor a name typed in the environment is ever taken for the operator.
 
-The PostgreSQL queue uses `FOR UPDATE SKIP LOCKED`, so multiple workers may process different Slack jobs safely. Failed jobs retry with bounded exponential backoff, become dead after five attempts, and jobs abandoned by a worker are reclaimed after five minutes (a job being worked renews its lease every minute).
-
-Dead jobs are handled with `DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list | replay <id> | payload <id> <reason>`. The key is checked at IAM (`GET /api/iam/v1/whoami` at `DATALAYER_IAM_URL`, prod1 by default): the operator is the person it is, and only with the `platform_admin` role; their uid is what every replay and payload read keeps. `list` shows metadata and a hash of each payload, never its words. `replay` puts a dead job back to work once, and every replay, refused or not, is kept in `slack_job_replays` with the operator. `payload` reads a dead job's payload only (a live job or an unknown id is refused), needs a reason of ten characters or more, is kept in `slack_payload_access`, and its credentials are redacted. Neither the container's user nor a name typed in the environment is ever taken for the operator. Each read and replay also keeps the database role that did it (`database_role`, migration 010).
-
-### Database roles (S-405)
-
-By default the service's role (`slack`, the owner CNPG creates) owns every table and runs the migrations, so it can read a dead job's payload. The split, off by default, takes that away:
-
-- `slack_owner` owns the tables and runs the migrations, then `migrations/roles/` (`node dist/migrate.js --roles`, with `DATALAYER_SLACK_SERVICE_ROLE=slack`).
-- The service's role keeps its tables and reaches the queue through the view `slack.slack_jobs`, which has no dead job (the default `search_path`, `"$user", public`, finds it first); it may not read `public.slack_jobs` or the audit.
-- `slack_dead_letters` reads dead jobs only (`slack_dead_letters.slack_jobs`), replays them, and appends the audit, which it may not read or change. The dead-letters bin refuses the service's role.
-
-On r1, once:
-
-1. Create the two roles' Secrets in `datalayer-api`, of type `kubernetes.io/basic-auth`, each with the keys `username` and `password` (a password of URL-safe characters, such as `openssl rand -hex 32`): `datalayer-slack-db-owner` (`username: slack_owner`) and `datalayer-slack-db-dead-letters` (`username: slack_dead_letters`).
-2. Deploy with `DATALAYER_SLACK_DATABASE_ROLES=create`: the image with migration 010, still migrated as `slack`; CNPG creates the two login roles from the Secrets (`slack.databaseRoles.create`).
-3. As a superuser, in the `slack` database (for instance `kubectl exec -i -n datalayer-api datalayer-slack-postgresql-1 -c postgres -- psql -v ON_ERROR_STOP=1 -d slack` on the primary), move the tables to `slack_owner`. The service keeps running: its role is granted the tables back until the next step takes the queue's and the audit's away.
-
-<!-- one-time-owner-sql -->
-
-```sql
-BEGIN;
-CREATE SCHEMA IF NOT EXISTS slack AUTHORIZATION slack_owner;
-CREATE SCHEMA IF NOT EXISTS slack_dead_letters AUTHORIZATION slack_owner;
-GRANT CREATE ON SCHEMA public TO slack_owner;
-ALTER TABLE slack_event_claims OWNER TO slack_owner;
-ALTER TABLE slack_jobs OWNER TO slack_owner;
-ALTER TABLE slack_usage OWNER TO slack_owner;
-ALTER TABLE slack_payload_access OWNER TO slack_owner;
-ALTER TABLE slack_job_replays OWNER TO slack_owner;
-ALTER TABLE slack_app_allowances OWNER TO slack_owner;
-ALTER TABLE slack_app_defaults OWNER TO slack_owner;
-ALTER TABLE slack_approval_cards OWNER TO slack_owner;
-ALTER TABLE slack_channel_bindings OWNER TO slack_owner;
-ALTER TABLE slack_custom_apps OWNER TO slack_owner;
-ALTER TABLE slack_deliveries OWNER TO slack_owner;
-ALTER TABLE slack_finished_events OWNER TO slack_owner;
-ALTER TABLE slack_held_prompts OWNER TO slack_owner;
-ALTER TABLE slack_installations OWNER TO slack_owner;
-ALTER TABLE slack_oauth_installations OWNER TO slack_owner;
-ALTER TABLE slack_thread_binding_history OWNER TO slack_owner;
-ALTER TABLE slack_thread_bindings OWNER TO slack_owner;
-ALTER TABLE slack_thread_next_application OWNER TO slack_owner;
-ALTER TABLE slack_thread_turns OWNER TO slack_owner;
-ALTER TABLE slack_user_event_policies OWNER TO slack_owner;
-ALTER TABLE slack_user_links OWNER TO slack_owner;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO slack;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO slack;
-COMMIT;
-```
-
-<!-- /one-time-owner-sql -->
-
-4. Deploy with `DATALAYER_SLACK_DATABASE_ROLES=enforce` (`slack.databaseRoles.enforce`): the migrate job runs as `slack_owner` with `--roles`, which refuses to run while any `slack_` table or function, or either schema, is not `slack_owner`'s, and names it. The `datalayer-slack-dead-letters` Deployment (no replica) holds the reader's `DATABASE_URL`: scale it to one, then `kubectl exec -n datalayer-api deploy/datalayer-slack-dead-letters -- env DATALAYER_OPERATOR_KEY=<your Datalayer key> node dist/dead-letters.js list`, and back to zero.
-
-Who may run the bin is who may exec into that Deployment (Kubernetes RBAC, recorded in the API server's audit log) and holds a Datalayer key with the `platform_admin` role; the uid IAM names is the operator every row keeps, beside the database role.
+The service and the dead-letters bin use the same Solr user: the separate database role that once kept dead payloads from the service (S-405) has no Solr counterpart. Who may run the bin is who may exec into a service pod (Kubernetes RBAC, recorded in the API server's audit log) and holds a Datalayer key with the `platform_admin` role; the uid IAM names is the operator every record keeps.
 
 ## Checks
 

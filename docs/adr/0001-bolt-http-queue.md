@@ -65,3 +65,15 @@ that can run for minutes and needs approvals. The service has to:
 - `/healthz` reports liveness. `/readyz` checks only the database and the
   queue, never Slack or Datalayer, so a dependency outage does not flap the
   pods.
+
+## Note, 13 November 2026
+
+The store and the queue moved from Postgres to the cluster's SolrCloud, in
+the collection `slack` (the user: "we should not use postgresql at all";
+version 0.2.0). The decisions above stand: persist, then acknowledge, then
+work. Points 3 and 4 now read Solr: a job is claimed by a conditional write
+on its `_version_`, retried, dead after five attempts and reclaimed after a
+five-minute lease; the idempotency claim and its job are written under the
+claim's lock, the job first, rather than in one transaction (a failure
+between the two can enqueue a duplicate, which the turn's claim answers,
+never lose an event). `/readyz` checks the collection.

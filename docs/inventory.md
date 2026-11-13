@@ -180,8 +180,9 @@ The adapter's side is in `src/deliveries.ts`: the route
   installation's own delivery secret.
 - **Plane conventions:** services are Helm releases installed by
   `k8s/services/plane/datalayer_plane/sbin/up.sh`, where the image tag is the
-  real pin. The cluster runs a CloudNativePG operator (`datalayer-postgresql`),
-  which this service's Postgres store and queue target. OTEL goes to
+  real pin. The cluster's SolrCloud (`datalayer-solr`) holds this service's
+  store and queue, in the collection `slack` (since 0.2.0, 13 November 2026;
+  before, a CloudNativePG Postgres). OTEL goes to
   `datalayer-otel-otel-collector-svc.datalayer-otel:4317`. Secrets come from
   the rc files and are never created by an agent.
 
@@ -209,7 +210,7 @@ is the one exact pin. In the monorepo the workspace link serves `lib/portable`
 after every `npm install`.
 
 What runs is one esbuild bundle (`scripts/bundle.ts`, `dist/index.js`,
-`dist/migrate.js`, `dist/dead-letters.js`): the service's sources and the
+`dist/dead-letters.js`): the service's sources and the
 `lib/portable` modules they reach, its `dependencies` external. The gate
 checks what was bundled (`forbiddenInBundle` over the metafile:
 `npm run check:imports`, in memory), the sources (`scripts/forbidden-sources.ts`)
@@ -219,11 +220,9 @@ on `@jupyter/*`, `@jupyterlab/*`, `@jupyter-widgets/*`, `@lumino/*`,
 `@datalayer/jupyter-*`, `react`, `react-dom`, `@primer/*`,
 `@datalayer/reactor` and the other host services.
 
-The shared tables (`slack_event_claims`, `slack_jobs`, `slack_usage`,
-`slack_payload_access`, `slack_job_replays`) are `hostSchemaSql("slack")`,
-applied by `scripts/migrate.ts` before `migrations/`; a database migrated
-before and after the move dumps the same schema (`pg_dump --schema-only`,
-16 October 2026).
+The durable queue, quotas and dead letters are kept in the service's Solr
+collection (`src/solr/`: the same code in the Discord and WhatsApp
+services), no longer in the host kit's Postgres tables (13 November 2026).
 
 ## 9. Core's portable clients (tech/datalayer/core)
 

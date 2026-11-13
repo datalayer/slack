@@ -8,19 +8,32 @@ import type {
   EncryptedSecret,
   SecretCipher,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import type { Pool } from "pg";
 
-import type { SlackInstallation, SlackInstallationKey } from "./domain.js";
+import {
+  installationKey,
+  type SlackInstallation,
+  type SlackInstallationKey,
+} from "./domain.js";
 import type { HostInstallations } from "./host-installations.js";
 import { bindCodeOfInstallation } from "./oauth-state.js";
+import { KINDS } from "./solr-store.js";
+import type { SolrRecords } from "./solr/records.js";
 import type { SlackStore } from "./store.js";
 
-type OAuthRow = Readonly<{ installation: EncryptedSecret }>;
+type KeptOAuth = Readonly<{ installation: EncryptedSecret }>;
 
-export class PostgresInstallationStore implements InstallationStore {
+/** What this store asks of the records: a keyed record read, kept and changed. */
+export type KeyedRecords = Pick<SolrRecords, "get" | "put" | "update">;
+
+/**
+ * Bolt's own installations (what its `authorize` reads), encrypted whole, in
+ * the `slack` collection beside the store's (`oauth_installation`, one per
+ * workspace, removed with the workspace's other records).
+ */
+export class SolrInstallationStore implements InstallationStore {
   constructor(
     readonly appId: string,
-    readonly database: Pool,
+    readonly records: KeyedRecords,
     readonly cipher: SecretCipher,
     readonly slackStore: SlackStore,
     /** Binds the workspace at Datalayer with the Ship card's code, and keeps its key. */
@@ -59,13 +72,11 @@ export class PostgresInstallationStore implements InstallationStore {
       JSON.stringify({ ...installation, metadata: undefined }),
       key,
     );
-    await this.database.query(
-      `INSERT INTO slack_oauth_installations
-         (app_id, enterprise_id, team_id, installation, updated_at)
-       VALUES ($1,$2,$3,$4,now())
-       ON CONFLICT (app_id, enterprise_id, team_id) DO UPDATE SET
-         installation = EXCLUDED.installation, updated_at = now()`,
-      [appId, installation.enterprise?.id ?? "", teamId, encrypted],
+    await this.records.put<KeptOAuth>(
+      KINDS.oauth,
+      key,
+      { installation: encrypted },
+      { installation_s: installationKey(domainKey) },
     );
 
     const kept: SlackInstallation = {
@@ -92,12 +103,8 @@ export class PostgresInstallationStore implements InstallationStore {
       );
     }
     const key = oauthKey(this.appId, query.enterpriseId, query.teamId);
-    const result = await this.database.query<OAuthRow>(
-      `SELECT installation FROM slack_oauth_installations
-       WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3`,
-      [this.appId, query.enterpriseId ?? "", query.teamId],
-    );
-    const encrypted = result.rows[0]?.installation;
+    const encrypted = (await this.records.get<KeptOAuth>(KINDS.oauth, key))
+      ?.installation;
     if (!encrypted) throw new Error("No active Slack installation was found.");
     return JSON.parse(this.cipher.decrypt(encrypted, key)) as Installation<
       "v1" | "v2",
@@ -130,43 +137,29 @@ export class PostgresInstallationStore implements InstallationStore {
         token: installation.botToken,
       },
     };
-    await this.database.query(
-      `UPDATE slack_oauth_installations SET installation = $4, updated_at = now()
-       WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3`,
-      [
-        this.appId,
-        key.enterpriseId ?? "",
-        key.teamId,
-        this.cipher.encrypt(
-          JSON.stringify(next),
-          oauthKey(this.appId, key.enterpriseId, key.teamId),
-        ),
-      ],
+    const kept = oauthKey(this.appId, key.enterpriseId, key.teamId);
+    await this.records.update<KeptOAuth>(KINDS.oauth, kept, (before) =>
+      before
+        ? {
+            fields: {
+              installation_s: installationKey({ ...key, appId: this.appId }),
+            },
+            record: {
+              installation: this.cipher.encrypt(JSON.stringify(next), kept),
+            },
+          }
+        : undefined,
     );
   }
 
   async deleteInstallation(query: InstallationQuery<boolean>): Promise<void> {
     if (!query.teamId || query.isEnterpriseInstall) return;
-    const client = await this.database.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(
-        `DELETE FROM slack_oauth_installations
-         WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3`,
-        [this.appId, query.enterpriseId ?? "", query.teamId],
-      );
-      await client.query(
-        `DELETE FROM slack_installations
-         WHERE app_id = $1 AND enterprise_id = $2 AND team_id = $3`,
-        [this.appId, query.enterpriseId ?? "", query.teamId],
-      );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    // Bolt's installation, the store's and every record of the workspace.
+    await this.slackStore.deleteInstallation({
+      appId: this.appId,
+      enterpriseId: query.enterpriseId,
+      teamId: query.teamId,
+    });
   }
 }
 

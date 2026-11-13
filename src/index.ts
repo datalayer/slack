@@ -48,7 +48,7 @@ import { bothTracers, OtlpTracer } from "./tracing.js";
 async function main(): Promise<void> {
   const config = readConfig();
   const client = new DatalayerHostClient(config.DATALAYER_API_URL);
-  const resources = createRuntimeResources(config, (store) => {
+  const resources = await createRuntimeResources(config, (store) => {
     return new HostInstallations(store, client, {
       deliveryUrlOf: (hostUid) => deliveryUrlOf(config, hostUid),
       logger: console,
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   const app = createBoltApp(config, {
     customRoutes: [
       ...healthRoutes({
-        database: resources.ready,
+        solr: resources.ready,
         queue: () => queue.ready(),
       }),
       ...customAppRoutes({
@@ -226,7 +226,7 @@ async function main(): Promise<void> {
   const health =
     role === "worker"
       ? healthServer({
-          database: resources.ready,
+          solr: resources.ready,
           queue: () => queue.ready(),
         }).listen(config.PORT)
       : undefined;

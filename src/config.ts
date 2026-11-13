@@ -10,7 +10,7 @@ const schema = z
       .default("development"),
     PORT: z.coerce.number().int().positive().default(3000),
     DATALAYER_SLACK_TRANSPORT: z.enum(["http", "socket"]).default("http"),
-    DATALAYER_SLACK_STORE: z.enum(["memory", "postgres"]).default("memory"),
+    DATALAYER_SLACK_STORE: z.enum(["memory", "solr"]).default("memory"),
     /**
      * What this process does: `ingress` serves Slack's
      * signed requests and persists them, `worker` works the durable queue
@@ -18,7 +18,22 @@ const schema = z
      * Production scales two ingress replicas and the workers apart.
      */
     DATALAYER_SLACK_ROLE: z.enum(["all", "ingress", "worker"]).default("all"),
-    DATABASE_URL: optionalSecret,
+    /**
+     * The service's Solr collection (`slack`), on the cluster's SolrCloud:
+     * its base URL (`.../solr`) and the platform's Solr user.
+     */
+    DATALAYER_SOLR_URL: z
+      .url()
+      .refine((url) => url.replace(/\/+$/, "").endsWith("/solr"), {
+        message: "DATALAYER_SOLR_URL is Solr's base URL, ending in /solr.",
+      })
+      .optional(),
+    DATALAYER_SOLR_USERNAME: optionalSecret,
+    DATALAYER_SOLR_PASSWORD: optionalSecret,
+    DATALAYER_SLACK_SOLR_COLLECTION: z
+      .string()
+      .regex(/^[a-z][a-z0-9_-]*$/)
+      .default("slack"),
     DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY: optionalSecret,
     DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION: z.coerce
       .number()
@@ -145,41 +160,44 @@ const schema = z
     }
     if (
       value.DATALAYER_SLACK_ROLE !== "all" &&
-      value.DATALAYER_SLACK_STORE !== "postgres"
+      value.DATALAYER_SLACK_STORE !== "solr"
     ) {
       context.addIssue({
         code: "custom",
         path: ["DATALAYER_SLACK_ROLE"],
         message:
-          "Ingress and workers apart share a durable queue: they need the PostgreSQL store.",
+          "Ingress and workers apart share a durable queue: they need the Solr store.",
       });
     }
-    if (value.DATALAYER_SLACK_STORE === "postgres" && !value.DATABASE_URL) {
-      context.addIssue({
-        code: "custom",
-        path: ["DATABASE_URL"],
-        message: "PostgreSQL storage requires DATABASE_URL.",
-      });
-    }
+    for (const name of [
+      "DATALAYER_SOLR_URL",
+      "DATALAYER_SOLR_USERNAME",
+      "DATALAYER_SOLR_PASSWORD",
+    ] as const)
+      if (value.DATALAYER_SLACK_STORE === "solr" && !value[name])
+        context.addIssue({
+          code: "custom",
+          path: [name],
+          message: `Solr storage requires ${name}.`,
+        });
     if (
-      value.DATALAYER_SLACK_STORE === "postgres" &&
+      value.DATALAYER_SLACK_STORE === "solr" &&
       !value.DATALAYER_SLACK_APP_ID
     ) {
       context.addIssue({
         code: "custom",
         path: ["DATALAYER_SLACK_APP_ID"],
-        message: "PostgreSQL storage requires DATALAYER_SLACK_APP_ID.",
+        message: "Solr storage requires DATALAYER_SLACK_APP_ID.",
       });
     }
     if (
-      value.DATALAYER_SLACK_STORE === "postgres" &&
+      value.DATALAYER_SLACK_STORE === "solr" &&
       !value.DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY
     ) {
       context.addIssue({
         code: "custom",
         path: ["DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY"],
-        message:
-          "PostgreSQL storage requires DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY.",
+        message: "Solr storage requires DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY.",
       });
     }
     if (

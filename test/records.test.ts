@@ -1,11 +1,9 @@
 import { randomBytes } from "node:crypto";
 
-import type { Pool, PoolClient } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   MemoryWorkQueue,
-  PostgresWorkQueue,
   SecretCipher,
   type WorkQueue,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
@@ -16,16 +14,18 @@ import {
   type ThreadKey,
 } from "../src/domain.js";
 import { inboundHashOf } from "../src/ingress.js";
-import { PostgresSlackStore } from "../src/postgres-store.js";
+import { textOf } from "../src/solr/client.js";
+import { SolrWorkQueue } from "../src/solr/queue.js";
+import { SolrRecords } from "../src/solr/records.js";
+import { SolrSlackStore } from "../src/solr-store.js";
 import { MemorySlackStore, type SlackStore } from "../src/store.js";
-import { testDatabase } from "./support/postgres.js";
+import { emptied, solrTestUrl, testCollection } from "./support/solr.js";
 
 /**
- * The Slack-side records (S-004), on the memory store always and on
- * Postgres when `DATALAYER_SLACK_TEST_DATABASE_URL` names a throwaway database:
- * every migration applied, then the same cases.
+ * The Slack-side records (S-004), on the memory store always and on Solr
+ * when `DATALAYER_SOLR_TEST_URL` (`test/support/solr.ts`) names a
+ * SolrCloud: a throwaway collection, then the same cases.
  */
-const DATABASE_URL = process.env.DATALAYER_SLACK_TEST_DATABASE_URL;
 
 const key = { appId: "A1", teamId: "T1" } as const;
 const thread: ThreadKey = { ...key, channelId: "C1", threadTs: "1.0" };
@@ -246,7 +246,7 @@ function suite(name: string, fresh: () => Promise<Opened>) {
     it("starts one of two concurrent first turns of a thread, the other busy (S-207)", async () => {
       await reset();
       await installed(store);
-      // A thread with no turn row yet: the review reproduced both starting on Postgres.
+      // A thread with no turn row yet: two workers must never both start it.
       const fresh: ThreadKey = { ...thread, threadTs: "7.0" };
       const claims = await Promise.all(
         ["Ev1", "Ev2", "Ev3", "Ev4"].map((eventId) =>
@@ -457,97 +457,68 @@ suite("Slack records on the memory store", async () => ({
   store: new MemorySlackStore(),
 }));
 
-if (DATABASE_URL) {
-  let database: Pool;
+if (solrTestUrl) {
+  let records: SolrRecords;
   beforeAll(async () => {
-    database = await testDatabase(DATABASE_URL, "slack_test_records");
-  });
-  afterAll(async () => {
-    await database?.end();
-  });
+    records = await testCollection("test_slack_records");
+  }, 60_000);
   const cipher = new SecretCipher(randomBytes(32).toString("base64"), 1);
-  describe("the Postgres turn lock on a thread's first turn (S-207)", () => {
-    it("serializes two workers even when both read the thread before either writes", async () => {
-      await database.query(
-        "TRUNCATE slack_installations, slack_event_claims, slack_jobs CASCADE",
-      );
-      // Each worker pauses right after reading the thread's turn row, so
-      // both read "no turn" before either inserts: the review's reproduction.
-      const pause = async (client: PoolClient): Promise<PoolClient> => {
-        const query = client.query.bind(client) as (
-          text: string,
-          values?: unknown[],
-        ) => Promise<unknown>;
-        return Object.assign(Object.create(client) as PoolClient, {
-          query: async (text: string, values?: unknown[]) => {
-            const result = await query(text, values);
-            if (text.includes("FOR UPDATE"))
-              await new Promise((resolve) => setTimeout(resolve, 150));
-            return result;
-          },
-          release: () => client.release(),
-        });
-      };
-      const slowed = Object.assign(Object.create(database) as Pool, {
-        connect: async () => pause(await database.connect()),
-        query: database.query.bind(database),
+  describe("the Solr turn lock on a thread's first turn (S-207)", () => {
+    it("serializes two workers, each with its own connection, on a thread with no turn yet", async () => {
+      await emptied(records);
+      // Two processes: each its own records over the same collection.
+      const other = new SolrRecords(records.client, {
+        leaseMs: 5_000,
+        stripes: records.stripes,
       });
-      const store = new PostgresSlackStore(slowed, cipher);
-      await installed(store);
+      const first = new SolrSlackStore(records, cipher);
+      const second = new SolrSlackStore(other, cipher);
+      await installed(first);
       const fresh: ThreadKey = { ...thread, threadTs: "8.0" };
       const claims = await Promise.all([
-        store.beginTurn(fresh, "Ev1", at, 60_000),
-        store.beginTurn(fresh, "Ev2", at, 60_000),
+        first.beginTurn(fresh, "Ev1", at, 60_000),
+        second.beginTurn(fresh, "Ev2", at, 60_000),
       ]);
       expect(claims.map((one) => one.outcome).sort()).toEqual([
         "busy",
         "started",
       ]);
-    });
+    }, 60_000);
   });
-  describe("the Postgres work queue's lease (S-207)", () => {
+  describe("the Solr work queue's lease (S-207)", () => {
     it("renews a job's lease while it is worked, so a long turn is not reclaimed", async () => {
-      await database.query("TRUNCATE slack_jobs");
-      const queue = new PostgresWorkQueue<{ n: number }>(
-        database,
-        "slack",
-        10,
-        50,
-      );
+      await emptied(records);
+      const queue = new SolrWorkQueue<{ n: number }>(records, 10, 50);
       await queue.enqueue({ n: 1 });
       const leases: number[] = [];
       let finish!: () => void;
       const done = new Promise<void>((resolve) => (finish = resolve));
       queue.start(async () => {
         for (let read = 0; read < 4; read += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 120));
-          const row = await database.query<{ locked_at: Date }>(
-            "SELECT locked_at FROM slack_jobs WHERE state = 'processing'",
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          const { docs } = await records.client.search({
+            fq: ["type_s:job", "state_s:processing"],
+          });
+          leases.push(
+            new Date(textOf(docs[0]?.locked_dt, "1970-01-01")).getTime(),
           );
-          leases.push(new Date(row.rows[0]?.locked_at ?? 0).getTime());
         }
         finish();
       });
       await done;
       await queue.stop();
       expect(leases.every((lease) => lease > 0)).toBe(true);
-      // Renewed while worked: the lease never goes back and has moved on by
-      // the end. Two reads 120 ms apart may see the same renewal on a slow
-      // runner (CI run 38913319947), so each step is only never earlier.
       for (let index = 1; index < leases.length; index += 1)
         expect(leases[index]).toBeGreaterThanOrEqual(leases[index - 1] ?? 0);
       expect(leases.at(-1)).toBeGreaterThan(leases[0] ?? 0);
-      const left = await database.query("SELECT 1 FROM slack_jobs");
-      expect(left.rowCount).toBe(0);
-    });
+      expect(await records.count("job")).toBe(0);
+    }, 60_000);
   });
-  suite("Slack records on Postgres", async () => {
-    await database.query(
-      "TRUNCATE slack_installations, slack_event_claims, slack_jobs CASCADE",
-    );
+  suite("Slack records on Solr", async () => {
+    await emptied(records);
     return {
-      queue: new PostgresWorkQueue<unknown>(database, "slack"),
-      store: new PostgresSlackStore(database, cipher),
+      queue: new SolrWorkQueue<unknown>(records),
+      store: new SolrSlackStore(records, cipher),
     };
   });
 }

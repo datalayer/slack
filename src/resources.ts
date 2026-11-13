@@ -1,17 +1,17 @@
 import {
   MemoryWorkQueue,
-  PostgresWorkQueue,
   SecretCipher,
   type WorkQueue,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
-import type { Pool } from "pg";
 
 import type { SlackJob } from "./bolt.js";
 import type { Config } from "./config.js";
-import { createDatabase } from "./database.js";
 import type { HostInstallations } from "./host-installations.js";
-import { PostgresInstallationStore } from "./oauth-store.js";
-import { PostgresSlackStore } from "./postgres-store.js";
+import { SolrInstallationStore } from "./oauth-store.js";
+import { SolrClient } from "./solr/client.js";
+import { SolrWorkQueue } from "./solr/queue.js";
+import { SolrRecords } from "./solr/records.js";
+import { SolrSlackStore } from "./solr-store.js";
 import { MemorySlackStore, type SlackStore } from "./store.js";
 
 export type RuntimeResources = Readonly<{
@@ -19,7 +19,7 @@ export type RuntimeResources = Readonly<{
   /** Whether the store answers now: what readiness reports. */
   ready(): Promise<boolean>;
   hosts: HostInstallations;
-  installationStore?: PostgresInstallationStore;
+  installationStore?: SolrInstallationStore;
   queue: WorkQueue<SlackJob>;
   store: SlackStore;
 }>;
@@ -27,10 +27,41 @@ export type RuntimeResources = Readonly<{
 /** The installations as Datalayer hosts, over the store the resources open. */
 export type HostsOf = (store: SlackStore) => HostInstallations;
 
-export function createRuntimeResources(
+/** The service's Solr collection, from its settings. */
+export function solrRecordsOf(
+  config: Pick<
+    Config,
+    | "DATALAYER_SOLR_URL"
+    | "DATALAYER_SOLR_USERNAME"
+    | "DATALAYER_SOLR_PASSWORD"
+    | "DATALAYER_SLACK_SOLR_COLLECTION"
+  >,
+): SolrRecords {
+  return new SolrRecords(
+    new SolrClient({
+      collection: config.DATALAYER_SLACK_SOLR_COLLECTION,
+      password: required(
+        config.DATALAYER_SOLR_PASSWORD,
+        "DATALAYER_SOLR_PASSWORD",
+      ),
+      url: required(config.DATALAYER_SOLR_URL, "DATALAYER_SOLR_URL"),
+      username: required(
+        config.DATALAYER_SOLR_USERNAME,
+        "DATALAYER_SOLR_USERNAME",
+      ),
+    }),
+  );
+}
+
+/**
+ * The store and the queue: in memory for development and tests, in the
+ * service's Solr collection otherwise (`DATALAYER_SLACK_STORE=solr`, which
+ * production requires). Its lock documents are made before it serves.
+ */
+export async function createRuntimeResources(
   config: Config,
   hostsOf: HostsOf,
-): RuntimeResources {
+): Promise<RuntimeResources> {
   if (config.DATALAYER_SLACK_STORE === "memory") {
     const queue = new MemoryWorkQueue<SlackJob>();
     const store = new MemorySlackStore();
@@ -43,9 +74,6 @@ export function createRuntimeResources(
     };
   }
 
-  const database = createDatabase(
-    required(config.DATABASE_URL, "DATABASE_URL"),
-  );
   const cipher = new SecretCipher(
     required(
       config.DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY,
@@ -54,40 +82,18 @@ export function createRuntimeResources(
     config.DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY_VERSION,
     "DATALAYER_SLACK_TOKEN_ENCRYPTION_KEY",
   );
-  return postgresResources(
-    database,
-    cipher,
-    required(config.DATALAYER_SLACK_APP_ID, "DATALAYER_SLACK_APP_ID"),
-    hostsOf,
-  );
-}
-
-function postgresResources(
-  database: Pool,
-  cipher: SecretCipher,
-  appId: string,
-  hostsOf: HostsOf,
-): RuntimeResources {
-  const queue = new PostgresWorkQueue<SlackJob>(database, "slack");
-  const store = new PostgresSlackStore(database, cipher);
+  const records = solrRecordsOf(config);
+  await records.init();
+  const queue = new SolrWorkQueue<SlackJob>(records);
+  const store = new SolrSlackStore(records, cipher);
   const hosts = hostsOf(store);
   return {
-    close: async () => {
-      await queue.stop();
-      await database.end();
-    },
+    close: async () => queue.stop(),
     hosts,
-    ready: async () => {
-      try {
-        await database.query("SELECT 1");
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    installationStore: new PostgresInstallationStore(
-      appId,
-      database,
+    ready: async () => records.client.ready(),
+    installationStore: new SolrInstallationStore(
+      required(config.DATALAYER_SLACK_APP_ID, "DATALAYER_SLACK_APP_ID"),
+      records,
       cipher,
       store,
       hosts,

@@ -64,7 +64,9 @@ const MOVED = [
 
 describe("the move to agent-runtimes' src/portable/hosts", () => {
   it("leaves no moved export in this service", async () => {
-    for (const name of await readdir("src")) {
+    for (const name of (await readdir("src", { recursive: true })).filter(
+      (one) => one.endsWith(".ts"),
+    )) {
       const source = await readFile(`src/${name}`, "utf8");
       for (const moved of MOVED)
         expect(source.includes(moved), `src/${name}: ${moved}`).toBe(false);
