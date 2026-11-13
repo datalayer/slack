@@ -11,7 +11,7 @@ import {
   type SemanticEvent,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
-import { NOT_BOUND, sessionUidOf, slackShape } from "../src/agent-client.js";
+import { NOT_BOUND, slackShape } from "../src/agent-client.js";
 import type { TurnRequest } from "../src/domain.js";
 import { CONTRACTS_PATH } from "./support/contracts.js";
 
@@ -119,7 +119,8 @@ describe("Datalayer agent client", () => {
   });
 
   it("exchanges the host key, runs the turn once by its event id and maps the thread", async () => {
-    const session = sessionUidOf(request);
+    // The session the runtime mints: a ULID, named in its loop.turn.
+    const session = "01KA1B2C3D4E5F6G7H8J9K0M1N";
     const { calls, fetchImplementation } = wire({
       [`POST ${API}/api/ai-agents/v1/apps/hosts/self/token`]: () =>
         Response.json(exchanged),
@@ -158,8 +159,9 @@ describe("Datalayer agent client", () => {
     const seen = await collect(turn.updates);
 
     expect(turn.sessionId).toBe(session);
-    expect(session).toMatch(/^[A-Za-z0-9_-]{8,128}$/);
     const [exchange, start, bind] = calls;
+    // A new session is named by none but the runtime.
+    expect(start?.body).not.toHaveProperty("session");
     expect(exchange?.headers[contracts.headers.host_key!]).toBe("dlhk_key");
     // Where the turn is asked from: Datalayer refuses a denied channel at once.
     expect(exchange?.body).toEqual({

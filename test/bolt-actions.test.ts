@@ -12,8 +12,8 @@ import {
   type AgentClient,
 } from "@datalayer/agent-runtimes/lib/portable/hosts";
 
-import { sessionUidOf, slackShape } from "../src/agent-client.js";
-import type { ThreadKey, TurnRequest } from "../src/domain.js";
+import { slackShape } from "../src/agent-client.js";
+import type { ThreadKey } from "../src/domain.js";
 import {
   ASK_CHOICE_ACTION,
   askChoiceValue,
@@ -445,13 +445,20 @@ describe("A question asked in the AG-UI stream, answered in Slack, end to end (S
       events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
       { headers: { "content-type": "text/event-stream" } },
     );
+  /** The session the runtime minted for the thread: a ULID. */
+  const MINTED = "01KA1B2C3D4E5F6G7H8J9K0M1N";
   /** The runtime's stream of a turn that ends asking `asking`. */
   const asked = (asking: Record<string, unknown>) =>
     sse(
       {
         type: "CUSTOM",
         name: "loop.turn",
-        value: { turn: "t1", replayed: false, state: "running" },
+        value: {
+          session: MINTED,
+          turn: "t1",
+          replayed: false,
+          state: "running",
+        },
       },
       { type: "TEXT_MESSAGE_CONTENT", delta: "Before I compare them: " },
       { type: "CUSTOM", name: "loop.ask", value: asking },
@@ -516,9 +523,7 @@ describe("A question asked in the AG-UI stream, answered in Slack, end to end (S
     expect(questionTs).toBeDefined();
 
     // The runtime answers the next message of the same session.
-    const session = sessionUidOf({
-      provenance: promptOf(),
-    } as unknown as TurnRequest);
+    const session = MINTED;
     answers[`POST ${SESSIONS}/${session}/messages`] = () =>
       sse(
         {

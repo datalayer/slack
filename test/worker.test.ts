@@ -137,7 +137,6 @@ describe("choosing and switching applications (S-208)", () => {
     const second = agents.requests.at(-1);
     expect(second).toMatchObject({
       applicationId: "dep-2",
-      sessionGeneration: 1,
     });
     expect(second?.sessionId).toBeUndefined();
     expect(await store.getThread(promptOf())).toMatchObject({

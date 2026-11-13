@@ -342,7 +342,6 @@ describe("a session per thread, with the speaker and Slack provenance (S-204)", 
         teamId: "T1",
         threadTs: "1.0",
       },
-      sessionGeneration: 0,
     });
     expect(first?.sessionId).toBeUndefined();
     // The second person's turn enters as their own principal, in the same session.

@@ -191,7 +191,7 @@ The adapter's side is in `src/deliveries.ts`: the route
 What any chat
 host shares — the host contracts and `contracts.json`, the ai-agents host
 client, the agent client over the session API (with Slack's `HostShape`
-injected: `src/agent-client.ts`), `hostSessionUid`, the semantic events and
+injected: `src/agent-client.ts`), the semantic events and
 their AG-UI reduction, approval renderers and `hostMayDecide`, deliveries,
 `TurnState`, application resolution, the durable queue, quotas, `SecretCipher`,
 observability, dead letters, health, the shared schema and the forbidden-graph

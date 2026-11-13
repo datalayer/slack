@@ -1,5 +1,4 @@
 import {
-  hostSessionUid,
   type HostShape,
   type Place,
   type TurnProvenance,
@@ -9,8 +8,9 @@ import type { TurnRequest } from "./domain.js";
 
 /**
  * What is Slack's own in a turn (DC-004): the
- * session uid a thread derives, the place Datalayer checks the channel
- * policy against, and the target handed back with every delivery. The
+ * place Datalayer checks the channel policy against, and the target handed
+ * back with every delivery. A thread's session uid is the runtime's (a
+ * ULID), kept on the thread's binding. The
  * exchange, the session API and the stream are the shared host kit's
  * (`@datalayer/agent-runtimes/lib/portable/hosts`).
  */
@@ -27,17 +27,6 @@ export function placeOf(request: TurnRequest): Place {
 /** Said when a workspace has no host key: it was installed without Datalayer's code. */
 export const NOT_BOUND =
   "This Slack workspace is not connected to Datalayer: install @Datalayer again from the application's Ship tab.";
-
-/** One Slack thread is one session: its uid, derived, so a retry names it again. */
-export function sessionUidOf(request: TurnRequest): string {
-  const { appId, channelId, enterpriseId, teamId, threadTs } =
-    request.provenance;
-  return hostSessionUid(
-    "slack",
-    [appId, enterpriseId ?? "-", teamId, channelId, threadTs],
-    request.sessionGeneration,
-  );
-}
 
 /**
  * Handed back with every delivery (`targetSchema`): the thread, and the
@@ -74,6 +63,5 @@ export const slackShape: HostShape<TurnRequest["provenance"]> = {
   notBound: NOT_BOUND,
   placeOf,
   provenanceOf,
-  sessionUidOf,
   targetOf,
 };

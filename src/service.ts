@@ -313,10 +313,10 @@ export class SlackAgentService {
         teamId: prompt.teamId,
         threadTs: prompt.threadTs,
       },
+      // The thread's session, kept on its binding; without one (a first
+      // question, or the first after Start over or a switch) the runtime
+      // mints a new one, kept below from the turn.
       sessionId: resolved.binding?.sessionId,
-      sessionGeneration: resolved.binding
-        ? undefined
-        : (await this.store.getArchivedThreads(prompt)).length,
     };
 
     let turn;

@@ -190,6 +190,8 @@ export async function* streamOf(
 /** An agent client that answers each turn with its scripted events and keeps every request. */
 export class FakeAgents implements AgentClient<ThreadKey> {
   readonly requests: TurnRequest[] = [];
+  /** How many sessions it opened: a new one is `S-<that count>`, as the runtime mints one. */
+  opened = 0;
   readonly stops: Array<{ sessionId: string; request: TurnRequest }> = [];
   script: (request: TurnRequest) => Promise<TurnStream> | TurnStream;
 
@@ -200,7 +202,7 @@ export class FakeAgents implements AgentClient<ThreadKey> {
       script ??
       ((request) => ({
         run: { id: "t1" },
-        sessionId: request.sessionId ?? `S-${request.sessionGeneration ?? 0}`,
+        sessionId: request.sessionId ?? `S-${this.opened++}`,
         updates: streamOf(
           { kind: "text", text: "Hello from Datalayer." },
           { kind: "completion" },
